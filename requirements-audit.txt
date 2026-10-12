@@ -1,0 +1,7 @@
+# Versions used for the Stage 2 audit run (Python 3.13.16, Linux).
+# The full modelling environment is pinned separately before Stage 5.
+pandas==3.0.5
+numpy==2.5.3
+scipy==1.18.1
+matplotlib==3.11.2
+pyproj==3.8.0

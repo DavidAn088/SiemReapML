@@ -1,0 +1,36 @@
+# Fixed design constants for the Siem Reap 3D Clay/Sand classification project.
+# Values here are taken from the research brief; anything marked PENDING awaits
+# a decision recorded in docs/01_source_review_and_design.md, section 7.
+
+[data]
+raw_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+# SHA-256 of the file received on 2026-10-12. The audit refuses to run on a different file
+# unless --allow-checksum-mismatch is passed, so every reported number is tied to one input.
+raw_csv_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+crs_epsg = 32648            # WGS 84 / UTM zone 48N (consistent with the source "UTM48N" strings)
+
+[depth]
+top_m = 0.0
+bottom_m = 15.0
+cell_m = 0.5
+# PENDING (decision D3): minimum fraction of a 0.5 m cell that must lie inside one
+# labelled sample interval for the cell to receive that label. Audit previews 0.5.
+min_cell_coverage = 0.5
+# PENDING (decision D4): sample intervals longer than this are not treated as measured
+# strata until checked against the source log (e.g. single 0-20.5 m records).
+max_interval_m = 3.0
+
+[labels]
+# Binary target from the brief. Every other symbol (ML, CL-ML, missing) is excluded
+# until reviewed individually (decision D2).
+clay = ["CL", "CH"]
+sand = ["SC", "SM", "SP"]
+
+[regions]
+# Values found in the Region field of the received file.
+downtown = "Downtown"
+buffer_5km = "Downtown_5km"
+excluded = ["Downtown_10km", "Unassigned"]
+
+[seeds]
+global = 20261012
