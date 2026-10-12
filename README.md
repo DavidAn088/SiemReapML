@@ -32,14 +32,16 @@ notebooks/05_final_model_external_3d.ipynb  final model, frozen; external evalua
 
 ### Setup
 
+**Step-by-step for VS Code: [`RUN_IN_VSCODE.md`](RUN_IN_VSCODE.md).** The last cell of notebook 01 runs the three R scripts, so RStudio is optional.
+
 1. **Python:** `conda env create -f environment.yml && conda activate siemreap-ml`, or `pip install -r requirements.txt`.
-2. **R** (≥ 4.3; on Windows also Rtools for the same R version): open `SiemReapML.Rproj` in RStudio and run `source("R/00_install_packages.R")`.
+2. **R** (≥ 4.3; on Windows also Rtools for the same R version): notebook 01 runs `R/00_install_packages.R` for you, or open `SiemReapML.Rproj` in RStudio and run `source("R/00_install_packages.R")`.
 3. **Data:** place the files listed in `data/raw/README.md`, including the unzipped `blockCV-master/`.
 
 ### Run
 
 * **Software validation first.** Set `SIEMREAP_MODE=smoke` before starting Jupyter (or uncomment the line in each notebook's first cell). This uses one outer fold, the 100 m blocks, two Optuna trials and a 100 m 3D grid.
-* **The experiment.** Unset the variable (or set `SIEMREAP_MODE=full`) and run the notebooks in order, running the R scripts after notebook 01.
+* **The experiment.** Unset the variable (or set `SIEMREAP_MODE=full`), restart the kernels, and run the notebooks in order. The R scripts run from the last cell of notebook 01 (or in RStudio).
 * **Resuming and splitting.** Notebook 03 resumes from its checkpoints. `RUN_BLOCKS`, `RUN_MODELS` and `RUN_SCENARIOS` let you run a subset first, e.g. the primary block size.
 
 ### Settings (from the brief, all in `config/project.toml`)
