@@ -9,6 +9,22 @@ raw_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
 raw_csv_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
 crs_epsg = 32648            # WGS 84 / UTM zone 48N (consistent with the source "UTM48N" strings)
 
+[sources]
+# Received 2026-10-12 (second delivery). All paths are git-ignored; checksums pin the exact files.
+workbook = "data/raw/Final_Men_Ten_Mg_Hah_KGEO_Digitalized_COMPLETE_Depth_Formulas.xlsx"
+workbook_sha256 = "78a426c61a30cd103b1477aa7b52e67a8cc45f1163e00d5f0d0d938032aaaddc"
+master_sheet = "Study_Range_Stacking"
+qc_sheet = "QC_Digitalization"
+downtown_shp = "data/raw/gis/downtown/downtown.shp"
+downtown_shp_sha256 = "6ab634176e29a9691e8117deb37a5864b63797fb1aa065c48ae9adc9654f76e7"
+ring_shp = "data/raw/gis/ring_5km/Ring_5km.shp"
+ring_shp_sha256 = "70e23e22503b1f401cd9c7845b24a2a6478df3016e57a9ca85b3ea0defc0cfd8"
+dem = "data/raw/gis/dem_downtown"              # ESRI ArcInfo grid (GDAL driver AIG)
+dem_data_sha256 = "9ef9086739ea12cd4a219d6290045d781c07b0ec619af8401be28d59eb492a9f"  # w001001.adf
+# Ground_Elevation_m in the CSV is a bilinear (cell-centre) sample of this DEM; the 3D grid
+# must use the same sampler so training and prediction elevations are consistent.
+dem_sampler = "bilinear"
+
 [depth]
 top_m = 0.0
 bottom_m = 15.0

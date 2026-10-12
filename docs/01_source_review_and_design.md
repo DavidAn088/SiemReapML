@@ -1,7 +1,7 @@
 # Stage 1–3 report: source review, data audit and experimental design
 
 **Project:** 3D Clay/Sand classification of the upper 15 m in Downtown Siem Reap using machine learning and spatial cross-validation
-**Date:** 2026-10-12  **Status:** Stages 1–2 complete; Stage 3 design proposed and awaiting your review.
+**Date:** 2026-10-12 (updated the same day after the workbook, boundary polygons and DEM arrived)  **Status:** Stages 1–2 complete, including verification of the CSV against its sources; Stage 3 design proposed and awaiting your review.
 
 ---
 
@@ -9,15 +9,15 @@
 
 | Stage | Status | Evidence |
 |---|---|---|
-| 1 Source review | Done for the files received (one CSV, one paper, blockCV source zip). | §1, §2 |
-| 2 Data audit | Done. Reproducible script, aggregate tables and figures. | `scripts/01_audit_raw_data.py`, `outputs/01_audit/aggregate/` |
+| 1 Source review | Done for the files received: CSV, raw Excel workbook, Downtown and 5 km ring polygons, DEM, one paper, blockCV source zip. | §1, §2 |
+| 2 Data audit | Done. CSV audit, then verification of the CSV against the workbook, polygons and DEM (§1.7). Each finding of the verification was re-derived by an independent check before inclusion. | `scripts/01_audit_raw_data.py`, `scripts/02_verify_sources.py`, `outputs/0*/aggregate/` |
 | 3 Methodological design | Proposed (this document). **Not frozen**: it needs your decisions in §7. | §3–§6 |
 | 4 R blockCV / variograms | **Not started.** I held off on purpose: the external holdout boreholes have to be chosen first (§5.6), and variograms and fold balancing are label-dependent design steps. | – |
 | 5–7 Modelling, results, reporting | **Not started.** No model has been fitted, tuned or scored. | – |
 
 There is no earlier experiment, saved prediction or model score in this project. The only label statistics computed so far are the descriptive audit counts in §1. They cover all boreholes, including the ones that will later be reserved for external evaluation. §5.6 explains why the holdout selection does not use them.
 
-The repository is **public**, so the raw CSV and every borehole-level output (inventory, issue log with source line numbers, borehole map) are kept out of git. They live under `data/raw/` and `outputs/01_audit/restricted/`. Only aggregate statistics are committed.
+The repository is **public**, so the raw files and every borehole-level output (inventory, issue logs with source line numbers, maps, QC log) are kept out of git. They live under `data/raw/` and `outputs/*/restricted/`. Only aggregate statistics are committed, and this document names no borehole, client or project.
 
 ---
 
@@ -27,7 +27,9 @@ The repository is **public**, so the raw CSV and every borehole-level output (in
 
 | Item | Finding |
 |---|---|
-| File | `SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv` (UTF-8 with BOM), SHA-256 `caf59d0b…0f72`. **This is a CSV export, not the raw Excel workbook named in the brief.** The file name and contents show processing in ArcGIS: a `Region` field, DEM-derived ground elevations, and computed elevations. |
+| File | `SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv` (UTF-8 with BOM), SHA-256 `caf59d0b…0f72`. It is the workbook's master sheet exported row for row, with `Region` and the four elevation fields recomputed in ArcGIS from the supplied polygons and DEM (§1.7). |
+| Workbook | `Final_Men_Ten_Mg_Hah_KGEO_Digitalized_COMPLETE_Depth_Formulas.xlsx`, SHA-256 `78a426c6…aaddc`. 42 sheets: the master `Study_Range_Stacking` (4,269 rows), 40 per-borehole digitised sheets and a `QC_Digitalization` log (42 items). |
+| GIS | `downtown.shp` (80.74 km²), `Ring_5km.shp` (266.61 km²), both EPSG:32648; DEM `dem_downtown` (ESRI grid, 30.51 m float32, EPSG:32648, about 10 km around Downtown). |
 | Size | 4,269 records × 41 fields; one record per physical line, so every record can be traced to a CSV line number. |
 | Boreholes | **189** unique `BH_Code`s from 73 projects (`Project_No`) and 97 source report PDFs (`Source_File`). |
 | Record type | Each record is a **sample interval**, not a continuous stratum. Median length is 0.45 m (SS) and 0.50 m (ST). Laboratory and in-situ fields (Atterberg limits, grading, unit weights, SPT N, etc.) are attached to the samples. |
@@ -46,12 +48,12 @@ Fields named in the brief that exist: `BH_Code`, `UTM_Easting_m`, `UTM_Northing_
 
 * Downtown boreholes span 9.3 km (E) × 6.8 km (N) and are **strongly clustered**. The nearest-neighbour distance has a median of 51 m (10th percentile 14 m, 90th percentile 442 m). Half of the boreholes have another borehole within 51 m, 60 % within 100 m and 80 % within 200 m. Single-linkage grouping at 100 m gives 75 "sites", 48 of them single boreholes. One project lays about two dozen boreholes along a linear alignment in the north-west.
 * The 5 km boreholes are at least 1.6 km from any Downtown borehole. That is far beyond any candidate block size, which matters for Scenario B (§5.3).
-* **No boundary geometry is included.** `Region` is a label only, so I cannot verify how it was assigned, what "Downtown_5km" means (a 0–5 km ring outside the Downtown boundary?), or where the 3D prediction domain ends. See §7, M2.
+* **Resolved with the polygons (§1.7):** `Region` in the CSV equals point-in-polygon membership for all 189 boreholes. "Downtown_5km" is the ring 0–5 km outside the Downtown polygon edge; "Downtown_10km" boreholes lie 5.3–9.6 km and blank-Region boreholes 10.5–19.6 km from the polygon.
 
 ### 1.3 Depths and elevations
 
 * `Top_Elevation_m = Ground_Elevation_m − Depth_From_m` holds exactly for all 4,269 records, and the same check passes for the bottom and mid elevations. The convention is depth below ground, positive downwards.
-* **Ground elevations are DEM-derived.** 187 of 189 values carry float32-style decimals (e.g. 40.144863128662109), which is typical of raster extraction, not of surveyed levels. Two boreholes outside the study regions have exactly 1.5 m, which is implausible here and looks like a different source or a placeholder. Because the fixed predictor `Top_Elevation_m` inherits any DEM error, the DEM's product, resolution, vertical datum and DSM/DTM nature matter (M3).
+* **Ground elevations are DEM-derived, and this is now confirmed exactly:** for all 149 boreholes inside the supplied DEM (including all 145 in the two training extents) `Ground_Elevation_m` equals a bilinear sample of that DEM at the UTM coordinates, to float32 precision (§1.7). No borehole in the training extents has a surveyed ground level in the data. One of the two 1.5 m values is the DEM's own value: the DEM contains a 13,295-cell flat at exactly 1.5 m, south of Downtown. The other lies outside the DEM. Both boreholes are outside the study extents. The DEM's product, vertical datum and DSM/DTM nature are still unknown (M3).
 * 181 of 189 boreholes reach at least 15 m. The 8 that do not include 5 Downtown boreholes ending at 5.05–9.45 m.
 
 ### 1.4 Soil labels
@@ -82,17 +84,17 @@ Findings that bear on the target definition:
 |---|---|---|---|
 | I02 | Single records spanning > 3 m. **Two 5 km boreholes have one record each covering 0–20.5 m (CL) and 0–17.5 m (SC)**, followed by normal 0.5 m samples below; the 10 km zone has stratum-type "Interval" records. | 7 / 4 | Not treated as measured strata. The two 5 km boreholes contribute no labels in 0–15 m until the source logs are checked (D4). |
 | I03 | Overlapping intervals (19.45–19.95 vs 19.0–19.5 m). | 1 / 1 | Below 15 m; no effect. |
-| I04 | Text coordinate vs UTM field mismatch > 5 m: 54, 60 and **600 m** for three Downtown boreholes, 64 m (5 km), 452 m (10 km, two boreholes). | 6 / 6 | Needs the source report (M4). These boreholes are barred from the external set until resolved. |
+| I04 | Text coordinate vs UTM field mismatch > 5 m: 54, 60 and **600 m** for three Downtown boreholes, 64 m (5 km), 452 m (10 km, two boreholes). None changes region. Two text values are copies of a neighbouring borehole's location (UTM kept); the 10 km pair's offset equals one WGS 84 / Indian 1960 datum conversion; the 600 m and 60 m cases differ in easting only (§1.7). | 6 / 6 | Keep the UTM fields. M4 is narrowed to the two easting-only cases. These boreholes are barred from the external set until resolved. |
 | I05 | Coordinate text empty (UTM present). | 4 / 4 | Informational. |
 | I06 | USCS missing. | 161 / 19 | Unlabelled. |
 | I07 | USCS outside the binary map (ML, CL-ML). | 26 / 4 | D2. |
 | I08 | Logged group contradicts lab fines. | 43 / 17 | D5. |
-| I11 | Ground elevation lacks DEM precision (1.5 m). | 2 / 2 | Outside both scenarios. |
+| I11 | Ground elevation exactly 1.5 m. One is the DEM's own value on a 1.5 m flat; the other lies outside the DEM. | 2 / 2 | Outside both scenarios. |
 | I13 | Borehole shorter than 15 m. | 8 / 8 | Use the measured part only. |
 | I14 | Non-standard `Sample_Type` text (`SS-1`, `-`, blank). | 21 / 5 | Cosmetic. |
 | I15 | `Source_File` empty. | 16 / 2 | 10 km zone only; outside both scenarios. |
 
-No duplicate records, zero or negative interval lengths, within-borehole coordinate changes or elevation-formula errors were found.
+No duplicate records, zero or negative interval lengths, within-borehole coordinate changes or elevation-formula errors were found. Further issues found by comparing the CSV with its sources are listed in §1.7.
 
 ### 1.6 What the 0.5 m discretisation produces (audit preview)
 
@@ -112,7 +114,51 @@ The data are **sample intervals separated by unsampled gaps** (typical gap ≈ 0
 * Clay dominates the upper ~8 m and clayey sand dominates below ~10 m. **The 5 km zone is sandier than Downtown at 5–13 m.** That non-stationarity is the central hypothesis for Scenario A vs B: added 5 km data could bias Downtown predictions towards Sand at mid-depth. This is a hypothesis to test, not a result.
 * 102 of 120 Downtown boreholes contain both classes, 6 are all Clay and 12 are all Sand within the labelled cells. Borehole-level Macro-F1 is undefined for the 18 single-class boreholes (§5.7).
 
+* The preview counts include **four Downtown boreholes logged as contiguous 1.5 m disturbed/undisturbed (D/U) records** (54 records; §1.7, V3). Each such record labels three cells, so these four boreholes are labelled almost continuously, unlike the gapped 0.45–0.5 m samples elsewhere. D12 decides how to treat them.
+
 The discretisation rule is **not frozen** (D3). Nothing in the preview is a modelling result.
+
+
+### 1.7 Verification against the workbook, polygons and DEM
+
+`scripts/02_verify_sources.py` re-derives the following from the received files. Every item was first found by one analysis and then re-derived independently by a second analysis that tried to refute it. Items that the second analysis corrected are given here in their corrected form. Aggregate outputs are in `outputs/02_source_verification/aggregate/`; borehole-level evidence is in the git-ignored `restricted/` folder.
+
+**How the CSV relates to its sources**
+
+* The CSV is the workbook master sheet `Study_Range_Stacking` in the same row order: borehole code and depth interval agree in all 4,269 rows. 33 of 41 columns are identical, including `USCS`, both depth fields, both UTM fields and all laboratory values. **Labels, depths and XY predictors therefore do not depend on which file is used.**
+* The 8 differing columns are:
+  * `Region`, recomputed from the polygons;
+  * `Ground_Elevation_m` and the three derived elevations, recomputed from the DEM;
+  * `PL_pct`, `Pocket_Penetration_kPa` and `SPT_N`, where the export blanked **85 text qualifiers**: 45 SPT refusal or partial-penetration entries, 32 "> 300" pocket-penetrometer readings, 7 "Non-Plastic" and 1 "Inadequate Sample". None is a predictor, but the CSV understates SPT refusals and non-plastic fines.
+* **The workbook's own `Region` column is an older, different zoning** (City / Buffer_5km / Buffer_10km) and is blank for 39 boreholes. Mapped to the nearest equivalents, it disagrees with the polygons for 57 of 189 boreholes. It must not be used; scenario membership comes from the polygons.
+* **Ground elevation:** the CSV values are bilinear DEM samples for all 149 boreholes inside the DEM. The workbook is blank for 39 boreholes (36 Downtown) whose elevation formulas therefore evaluate to empty. For 29 others it holds nearest-cell values that differ from the CSV by up to 0.51 m, and one value is copied from a neighbouring borehole. The CSV, with one documented sampler, is the consistent source. The 40 boreholes outside the DEM take their elevations from a raster that was not supplied; all are outside both training extents.
+
+**Polygons**
+
+* Both polygons are valid single-part polygons in EPSG:32648. The ring's hole is identical to the Downtown polygon (symmetric difference 0 m²). Its outer edge equals a 5,000 m planar buffer of Downtown to within 1.4 m; the symmetric difference is 0.007 % of the ring area, from arcs converted to chords.
+* Region labels are robust to small boundary or coordinate errors. The nearest borehole outside Downtown is 556 m out; the nearest inside is 30.7 m from the edge (2 boreholes within 50 m, both at the straight 12.3 km northern edge, which the file metadata records as a clip by a city AOI).
+
+**Further data-quality findings**
+
+| # | Finding | Effect on the training extents | Proposed handling |
+|---|---|---|---|
+| V1 | **Two boreholes of the 24-borehole power-line project (BH-6, BH-8) have depth conflicts inside the workbook.** Their digitised sheets record overlapping intervals at 15.8–23.5 m and 17.0–23.1 m. The master holds the project's regular 0.5–21.45 m template. The QC log's maximum depths match the sheets, not the master. Their SS "fines" values are depths (Depth_To + 0.05 m). Every labelled row is logged SC, including 10 ST samples whose own grading gives ≥ 50 % fines. | 58 records; 35 Sand labels in Downtown 0–15 m; 10 of the 17 Downtown I08 conflicts | Exclude from the primary analysis until the source logs are checked; sensitivity with them (D11, M16) |
+| V2 | **Undocumented coordinate provenance for 5 Downtown boreholes.** For four, the QC log says the source report states no coordinate, yet UTM values are present. For one power-line borehole, the QC log records no coordinate, yet the master has one. | 5 Downtown boreholes | Keep, but bar from the external set (M17) |
+| V3 | **Contiguous long records:** 143 records longer than 1 m in 11 boreholes. In Downtown, 4 boreholes from two projects are logged as continuous 1.5 m D/U records (54 records) covering most of 0–15 m. | 4 Downtown boreholes labelled almost continuously | D12 |
+| V4 | **SS labels never have their own laboratory data.** Of 1,987 SS records with a USCS symbol, 1,969 have no grading, Atterberg or water-content values; the other 18 are the V1 artefacts. Label density also depends on the digitisation batch: the newest digitised projects left SS rows unclassified (in Downtown 0–15 m, 235 of 320 SS rows labelled in the appended block vs 747 of 750 elsewhere). | About half of all Downtown labels are SS labels | Keep as logged; sensitivity with lab-supported labels only (D13) |
+| V5 | **The QC log (42 items, all "PASS") contains no check of USCS labels.** It cannot be cited as validating the classification. | All labels | Rely on the source reports; report as a limitation |
+| V6 | **DEM characteristics.** 30.51 m float32 grid with a pixel size consistent with a reprojected ~1 arc-second product; product, version, vertical datum and DSM/DTM status are not recorded. Large constant-value flats (1.5 m, 17.0 m) suggest hydro-flattened water surfaces (an interpretation, not verified). Local anomalies in Downtown are strongly one-sided: 23 cells more than 5 m above their 3 × 3 median, none 5 m below. That fits above-ground objects (DSM) but also embankments. No borehole cell sits on such a spike. | Every `Top_Elevation_m` value | M3 |
+| V7 | **`Top_Elevation_m` is sensitive to DEM sampling at the scale of the 0.5 m cell.** At the 120 Downtown boreholes, nearest-cell and bilinear samples differ by a median of 0.15 m (19 boreholes > 0.5 m). A typical 15 m horizontal error changes the bilinear value by about 0.24 m. Boreholes on the same site within 30 m differ by up to 1.0 m purely from the DEM gradient. This is a sensitivity, not a measured error. | Every borehole | Use the same bilinear sampler for boreholes and the 3D grid; report as a limitation |
+
+**The prediction domain (geometry only)**
+
+A 25 m grid of XY columns inside the Downtown polygon has 129,179 columns. Distance from a column to the nearest of the 120 Downtown boreholes:
+
+| Percentile | 5 | 10 | 25 | 50 | 75 | 90 | 95 | max |
+|---|---|---|---|---|---|---|---|---|
+| Distance (m) | 134 | 203 | 371 | **677** | 1,309 | 2,213 | 2,718 | 3,730 |
+
+Only 3.1 % of the Downtown area lies within 100 m of a borehole, 18.4 % within 300 m and 65.2 % within 1 km. The boreholes' convex hull covers 49.9 % of the polygon. **The typical prediction distance is about 13 times the median borehole spacing (51 m)** (`fig_prediction_vs_borehole_distances.png`). Adding the 5 km boreholes changes the nearest borehole for 8 % of columns but leaves the median unchanged (675 m). These figures use all Downtown boreholes and will be recomputed with development boreholes once the external set is fixed. Their consequences for the validation design are in §4.2–4.3.
 
 ---
 
@@ -221,7 +267,7 @@ These are response variograms, which blockCV documents as **exploratory proxies*
 | Leave-site-out (100 m clusters) | Yes | Partly | New borehole at a new site | Possible alternative |
 | **blockCV `cv_spatial`, 100 / 200 / 300 m squares, k = 5, random balanced** | Yes | Depends on size (below) | Prediction at block-separated distances | **Required; primary design** |
 | `cv_buffer` (spatial LOO with radius) | Yes | Yes, by construction | Prediction at ≥ radius | Robustness / purge analysis |
-| `cv_knndm` / `cv_distance` | Yes | Matched to the prediction domain | Map-like prediction distances | **Diagnostic to justify block size**; needs boundary (M2) |
+| `cv_knndm` / `cv_distance` | Yes | Matched to the prediction domain | Map-like prediction distances | **Diagnostic to justify block size**, and proposed additional analysis (D15); the boundary is now available |
 
 ### 4.2 What the candidate block sizes imply here
 
@@ -233,7 +279,14 @@ Geometry-only planning diagnostic: a square grid anchored at the data minimum, *
 | 200 m | 75 | 2 | 22 | 182 m |
 | 300 m | 68 | 0 | 13 | 319 m |
 
-With five random folds, about 4 in 5 of those other-block neighbours land in training. So under **100 m blocks a substantial share of test boreholes will have a training borehole within tens of metres**: 100 m CV largely measures interpolation inside site clusters. At 300 m, no test borehole can have a training neighbour closer than about 50 m, and the median separation is around 300 m. Meanwhile the 3D map has to predict across a 9 × 7 km area where most voxels are probably hundreds of metres from any borehole. That last point needs the boundary to quantify.
+With five random folds, about 4 in 5 of those other-block neighbours land in training. So under **100 m blocks a substantial share of test boreholes will have a training borehole within tens of metres**: 100 m CV largely measures interpolation inside site clusters. At 300 m, no test borehole can have a training neighbour closer than about 50 m, and the median separation is around 300 m.
+
+**Now quantified with the boundary (§1.7):** the 3D map must predict at a median distance of 677 m from the nearest borehole (P90 2.2 km), and 82 % of the Downtown area is more than 300 m from any borehole. Even the largest candidate block (300 m) therefore tests prediction distances well below those of the mapping task. Two consequences:
+
+1. Whatever block size is primary, CV scores describe **near-borehole prediction**. They are not Downtown-wide map accuracy (Wadoux et al. 2021).
+2. The map must carry a **validated-distance mask**: columns farther from the nearest development borehole than the test-to-train distances actually evaluated in CV (for example their 95th percentile, from `cv_distance`) are flagged as unvalidated extrapolation, not reported as if they had the CV accuracy.
+
+To estimate performance at map-like distances, I propose one **additional** blockCV analysis: `cv_knndm` (Linnenbrink et al. 2024) with the 25 m Downtown grid as the prediction domain. It sits beside the 100/200/300 m designs and does not replace them, and needs your approval because it goes beyond the brief's candidate sizes (D15).
 
 ### 4.3 Recommended rule for the primary block size (fixed before any model is fitted)
 
@@ -243,6 +296,8 @@ The brief plans 100 m as primary, subject to review, and forbids choosing it by 
 2. Compute the prediction-domain distribution: horizontal distance from every 3D-grid column in the Downtown polygon to the nearest development borehole.
 3. For each of 100, 200 and 300 m, generate the blockCV folds and compute `cv_distance`: the test-to-nearest-train distance distribution and its Wasserstein distance *W* to the prediction distribution.
 4. **Primary = 100 m** if 100 m ≥ *r̃* and *W*(100) is within 10 % of the smallest *W*. Otherwise primary = the candidate ≥ *r̃* with the smallest *W*. If no candidate reaches *r̃*, primary = 300 m and the limitation is reported. The other two sizes are always reported as robustness analyses.
+
+Given the prediction-distance distribution in §1.7, step 3 will very likely favour the largest candidate. That expectation comes from geometry alone, not from any score. The rule is kept as written so that the choice stays mechanical and is made before modelling.
 
 The rule, the computed quantities and the resulting choice are written to `config/` and committed **before** any model sees the folds.
 
@@ -311,13 +366,13 @@ A **depth-band prior**: predict P(Clay) as the training-fold clay share of the c
 
 The selection uses **coordinates and sampling metadata only, never class values**, and runs before any variogram or fold is computed.
 
-1. **Eligible:** Downtown boreholes reaching ≥ 15 m, with ≥ 10 sampled intervals in 0–15 m that carry any USCS symbol (presence, not class), and no unresolved coordinate issue (I04).
+1. **Eligible:** Downtown boreholes reaching ≥ 15 m, with ≥ 10 sampled intervals in 0–15 m that carry any USCS symbol (presence, not class), and no unresolved data-quality issue: coordinate mismatch (I04), undocumented coordinate provenance (V2), depth conflict (V1) or contiguous long records (V3). These criteria exclude 12 of 120 boreholes. 101 remain eligible; the remaining 7 fail the depth or record-count criteria. The excluded boreholes stay in development unless D11/D12 say otherwise.
 2. **Sites:** single-linkage clusters at 100 m (coordinates only).
-3. **Generalisation group (5 boreholes):** whole sites whose nearest borehole outside the site is ≥ 300 m away. Downtown is split into 3 spatial zones by seeded k-means on coordinates, and sites are sampled across zones with a fixed seed. These test **geographically unfamiliar sites**.
-4. **Interpolation group (5 boreholes):** one randomly chosen borehole from each of 5 sites with ≥ 3 boreholes, sampled across zones. Its site neighbours (< 100 m) stay in development. These test **interpolation near existing boreholes**.
+3. **Generalisation group (5 sites):** whole sites whose nearest borehole outside the site is **≥ 500 m** away. This is raised from 300 m because the median prediction distance is 677 m. 15 eligible sites (23 boreholes) qualify. Downtown is split into 3 spatial zones by seeded k-means on coordinates, and sites are sampled across zones with a fixed seed. These test **geographically unfamiliar sites**.
+4. **Interpolation group (5 boreholes):** one randomly chosen borehole from each of 5 sites with **≥ 2** boreholes, sampled across zones. This is relaxed from ≥ 3 because only 6 eligible sites have three or more. The chosen borehole's site neighbours (< 100 m) stay in development. These test **interpolation near existing boreholes**.
 5. The sorted ID list is written to `outputs/…/restricted/`, and its **SHA-256 is committed** to the public repository. That fixes the list permanently without publishing borehole identities, and shows it was never changed after scores existed.
 
-Disclosure for the thesis: the external boreholes were selected after a descriptive audit of all labels (§1) but before any modelling or validation design, and the selection rule used no class information. If any of these boreholes were used in **your own earlier modelling** outside this project, they must be called *retrospective holdouts* (M10).
+Disclosure for the thesis: the external boreholes were selected after a descriptive audit of all labels (§1) but before any modelling or validation design, and the selection rule used no class information. If any of these boreholes were used in **your own earlier modelling** outside this project, they must be called *retrospective holdouts* (M10). The boundary files' metadata refer to an ArcGIS project named "Siem_Reap_3D_V5", which suggests earlier versions of this work exist.
 
 ### 5.7 Metrics and reporting
 
@@ -333,8 +388,9 @@ For every model × scenario × block size: Accuracy, balanced accuracy, Macro-F1
 
 ### 5.8 3D output for ArcGIS Pro
 
-* XY columns on a regular grid inside the Downtown polygon (25 m proposed), with 0.5 m layers to 15 m below the DEM surface.
-* `Top_Elevation_m = DEM(x, y) − depth`, so the **same DEM** used for the boreholes is required (M3).
+* XY columns on a regular grid inside the Downtown polygon: 25 m proposed, giving 129,179 columns × 30 layers = 3.9 million cells. The 25 m grid oversamples the 30.5 m DEM, so horizontal ground detail is limited to about 30 m. A 30.51 m grid aligned to the DEM pixels is the alternative.
+* `Top_Elevation_m = DEM(x, y) − depth`, sampled **bilinearly** from the supplied DEM exactly as for the boreholes. A different sampler would shift grid elevations by up to about 1 m relative to training.
+* Two extrapolation flags: **horizontal**, for distance beyond the CV-validated range (§4.2); and **vertical**, for cell-top elevation outside the training range. About 0.4 % of cells in Scenario A and 0.16 % in Scenario B are vertical extrapolation, mostly in the low-lying south and south-west of Downtown.
 * Deliverables:
   * a point table (CSV or file geodatabase) with X, Y, Z (cell centre elevation), depth, P(Clay), class, entropy, inter-model SD, distance to the nearest borehole, and an extrapolation flag (distance > the evaluated CV distance range);
   * a CF-compliant netCDF on a regular elevation grid (cells above ground or below 15 m set to NoData) for an ArcGIS Pro voxel layer.
@@ -348,7 +404,7 @@ For every model × scenario × block size: Accuracy, balanced accuracy, Macro-F1
 ```
 config/        project.toml (constants), search spaces, block-size decision, holdout hash
 data/raw/      received files (git-ignored)
-scripts/       01_audit (done), 02_preprocess, 03_select_external
+scripts/       01_audit (done), 02_verify_sources (done), 03_preprocess, 04_select_external
 R/             10_variograms.R, 11_blockcv_folds.R (blockCV 4.0-1, renv.lock)
 notebooks/     preprocessing, five-model nested CV, results (Jupyter)
 src/           shared Python: fold import, models, GW wrappers, metrics
@@ -392,33 +448,41 @@ Total: roughly 1–2 days of unattended computing. Memory is not a constraint.
 
 ## 7. Information and decisions needed before Stage 4
 
-### Information to supply
+### Information
 
-| # | Item | Why it blocks |
-|---|---|---|
-| M1 | **The raw Excel workbook** (only the derived CSV `…v1_ArcGIS.csv` was received). Does it contain continuous stratum descriptions (layer boundaries) as well as samples? | Traceability to original records. If continuous logs exist, far more 0.5 m cells could be labelled legitimately. |
-| M2 | **Downtown boundary and 5 km buffer polygons** (shapefile/GDB, CRS) and the definition of each `Region` value. | Verifies the `Region` labels, defines the prediction domain, and is needed for the block-size rule (§4.3) and the 3D grid. |
-| M3 | **The DEM** used for `Ground_Elevation_m`: product, resolution, vertical datum, DSM or DTM. Do the logs report surveyed ground levels? | `Top_Elevation_m` and the 3D grid depend on it. |
-| M4 | Correct coordinates for the 6 boreholes with text/UTM mismatches (3 in Downtown, up to 600 m). | Location errors corrupt blocking and distances. |
-| M5 | Source-log check of the two single 0–20.5 m and 0–17.5 m records. | Currently treated as unlabelled. |
-| M10 | Have any of these boreholes been used in your own earlier modelling? | Determines whether the external set can be called independent. |
-| M11 | The other research papers referred to in the brief. | Only the blockCV paper was received. |
-| M12 | The repository is **public**. Keep raw data and borehole-level outputs local (current set-up), or make the repository private and commit them? | Data confidentiality. |
-| M15 | Your machine (cores, RAM) and R version. | Compute planning and environment pinning. |
+| # | Item | Status after the second delivery | Still needed |
+|---|---|---|---|
+| M1 | Raw Excel workbook | **Received and reconciled** (§1.7). It holds only sample intervals: no soil descriptions or continuous layer boundaries. Continuous layers exist only in the source boring-log PDFs. | See M18 |
+| M2 | Downtown and 5 km polygons | **Received and verified.** CSV `Region` equals polygon membership for 189/189 boreholes. | Confirm the straight 12.3 km northern edge (a clip by a city AOI) is the intended study limit, and that the workbook's City/Buffer zones are retired. |
+| M3 | DEM | **Received.** CSV ground elevations are bilinear samples of it (149/149 within coverage). | Product name and version, vertical datum, DSM or DTM, and how it was reprojected and clipped. Surveyed ground levels from the logs, if any, especially where the DEM sits 2–3.5 m above its surroundings at a borehole. |
+| M4 | Coordinates of the 6 I04 boreholes | **Narrowed:** 2 are text-copy errors (UTM kept), 2 are outside the study extents (datum-conversion offset). | Correct easting for the two Downtown boreholes with easting-only differences (600 m and 60 m). |
+| M5 | The two single 0–20.5 m and 0–17.5 m records | Unchanged (identical in the workbook). | Source-log check; treated as unlabelled meanwhile. |
+| M10 | Prior use of these boreholes in your own modelling | Open. The boundary metadata refer to a project named "Siem_Reap_3D_V5". | Which boreholes, if any, were used before; determines the external-set wording. |
+| M11 | Other research papers named in the brief | Open. | The papers. |
+| M12 | Public repository | Open; raw data and borehole-level outputs are kept local. | Keep as is, or make the repository private? |
+| M15 | Your machine and R version | Open. | Cores, RAM, R version. |
+| M16 | **New:** source logs for the two power-line boreholes with depth conflicts (V1) | – | Which depth axis is correct; whether the ST "fines" values are real grading. |
+| M17 | **New:** coordinate provenance for 5 Downtown boreholes (V2) | – | Where their UTM values came from. |
+| M18 | **New (optional):** source boring-log PDFs generally | – | They would show whether SS symbols are visual log classifications (V4) and could supply continuous layer boundaries; neither is needed to proceed. |
 
 ### Decisions to approve
 
 | # | Decision | My recommendation |
 |---|---|---|
-| D1 | Scenario membership: Downtown (120) and Downtown_5km (25). The 10 km zone and unassigned boreholes are excluded from both scenarios. | Approve. |
+| D1 | Scenario membership from the polygons: Downtown (120) and the 0–5 km ring (25). The 10 km band and the boreholes beyond it are excluded from both scenarios. | Approve. |
 | D2 | ML / CL-ML (5 km zone only, 11 records in 0–15 m). | Exclude in the primary analysis. As sensitivity, reclassify by the plasticity chart using lab data (14 of 21 plot as CL). |
 | D3 | 0.5 m discretisation rule (§1.6): labels only from overlapping sample intervals, ≥ 50 % coverage, cell-top elevation. | Approve. |
 | D4 | Records > 3 m are not measured strata. | Approve, pending M5. |
-| D5 | The 43 logged-label vs lab-fines contradictions. | Keep the logged USCS (the source classification) in the primary analysis, flag them, and run a lab-relabelled sensitivity. |
+| D5 | The 43 logged-label vs lab-fines contradictions. | Keep the logged USCS in the primary analysis, flag them, and run a lab-relabelled sensitivity. The 10 conflicts from the V1 boreholes are covered by D11. |
 | D6 | Depth-band prior as a non-competing reference baseline (§5.5). | Approve. |
 | D7 | Square blocks (`hexagon = FALSE`), k = 5, random balanced selection, assignment balanced on the cell-level class. | Approve. |
 | D8 | Block-size decision rule (§4.3). | Approve before Stage 4. |
-| D9 | External holdout procedure (§5.6): 5 generalisation + 5 interpolation boreholes. | Approve, or set different numbers. |
+| D9 | External holdout procedure (§5.6): 5 generalisation sites (≥ 500 m isolation) and 5 interpolation boreholes. | Approve, or set different numbers. |
 | D10 | Selection rule and metric constraints (§5.7). | Approve. |
+| D11 | **New:** the two boreholes with depth conflicts (V1). | Exclude from the primary analysis until M16 is answered; sensitivity with them included. |
+| D12 | **New:** the four Downtown boreholes logged as contiguous 1.5 m D/U records (V3). | Include them: they are measured intervals, not extensions. Flag them, and run a sensitivity without them, because they are labelled almost continuously. |
+| D13 | **New:** SS labels (V4). | Keep as logged in the primary analysis. Sensitivity with lab-supported labels only (samples with their own grading or Atterberg data). |
+| D14 | **New:** source of truth. | Workbook master for record content (labels, depths, coordinates, lab data, text qualifiers). `Region` from the polygons, and ground elevation by bilinear sampling of the supplied DEM; both reproduce the CSV exactly. The CSV is kept as a verified cross-check. |
+| D15 | **New:** prediction-distance validation (§4.2). | Add `cv_knndm` (blockCV) with the Downtown 25 m grid as the prediction domain, as an analysis beside the 100/200/300 m designs, and a validated-distance mask on the 3D map. |
 
-Once M1–M4 are resolved (or explicitly waived) and D1–D10 are approved, the next steps are, in order: freeze the preprocessing; select and hash the external boreholes; run the R variogram and blockCV analysis; then the smoke test.
+Once M2–M4 and M16–M17 are resolved (or explicitly waived) and D1–D15 are approved, the next steps are, in order: freeze the preprocessing; select and hash the external boreholes; run the R variogram and blockCV analysis; then the smoke test.

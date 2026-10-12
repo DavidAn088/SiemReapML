@@ -155,7 +155,7 @@ def borehole_inventory(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
                   f"Coordinate text and UTM fields disagree by {r.coord_text_vs_utm_m:.0f} m")
         if not r.elev_more_than_2dp:
             issue("I11", "medium", code, r.first_line,
-                  f"Ground elevation {r.Ground_Elevation_m} m has <=2 decimals unlike DEM-derived values")
+                  f"Ground elevation {r.Ground_Elevation_m} m has <=2 decimals; checked against the DEM in 02_verify_sources.py")
         if r.depth_max_m < cfg["depth"]["bottom_m"]:
             issue("I13", "low", code, r.first_line, f"Borehole ends at {r.depth_max_m} m (< 15 m)")
     return bh

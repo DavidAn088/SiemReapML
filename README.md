@@ -7,7 +7,7 @@
 | Stage | State |
 |---|---|
 | 1 Source review | Done for the files received |
-| 2 Data audit | Done: `scripts/01_audit_raw_data.py` |
+| 2 Data audit | Done: `scripts/01_audit_raw_data.py` (CSV) and `scripts/02_verify_sources.py` (CSV vs workbook, polygons, DEM) |
 | 3 Experimental design | Proposed, awaiting review: [`docs/01_source_review_and_design.md`](docs/01_source_review_and_design.md) |
 | 4 R blockCV + variograms | Not started |
 | 5 Python nested CV, 5 models × 2 training extents | Not started |
@@ -20,9 +20,10 @@ No model has been trained and no performance figure exists yet.
 ```
 config/project.toml          fixed constants (depth range, 0.5 m cells, label map, CRS, seed)
 data/raw/                    received data (git-ignored; see data/raw/README.md)
-scripts/01_audit_raw_data.py Stage 2 audit
-outputs/01_audit/aggregate/  audit tables and figures without borehole identifiers
-outputs/01_audit/restricted/ borehole-level audit outputs (git-ignored)
+scripts/01_audit_raw_data.py Stage 2 audit of the CSV
+scripts/02_verify_sources.py Stage 2 verification against workbook, polygons and DEM
+outputs/0*/aggregate/        tables and figures without borehole identifiers
+outputs/0*/restricted/       borehole-level outputs (git-ignored)
 docs/                        stage reports
 ```
 
@@ -30,8 +31,9 @@ docs/                        stage reports
 
 ```bash
 pip install -r requirements-audit.txt
-# place the CSV in data/raw/ (checksum is verified)
+# place the received files in data/raw/ as listed in data/raw/README.md (checksums are verified)
 python scripts/01_audit_raw_data.py
+python scripts/02_verify_sources.py
 ```
 
 ## Data confidentiality
