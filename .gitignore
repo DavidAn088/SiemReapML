@@ -11,3 +11,11 @@ __pycache__/
 .Rproj.user/
 .Rhistory
 .RData
+
+# Borehole-level intermediate files, R fold files, smoke-test outputs, checkpoints and models
+data/processed/
+data/folds/
+outputs/smoke/
+outputs/**/checkpoints/
+outputs/**/models/
+outputs/**/trials/

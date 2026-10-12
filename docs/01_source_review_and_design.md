@@ -11,9 +11,9 @@
 |---|---|---|
 | 1 Source review | Done for the files received: CSV, raw Excel workbook, Downtown and 5 km ring polygons, DEM, one paper, blockCV source zip. | §1, §2 |
 | 2 Data audit | Done. CSV audit, then verification of the CSV against the workbook, polygons and DEM (§1.7). Each finding of the verification was re-derived by an independent check before inclusion. | `scripts/01_audit_raw_data.py`, `scripts/02_verify_sources.py`, `outputs/0*/aggregate/` |
-| 3 Methodological design | Proposed (this document). **Not frozen**: it needs your decisions in §7. | §3–§6 |
-| 4 R blockCV / variograms | **Not started.** I held off on purpose: the external holdout boreholes have to be chosen first (§5.6), and variograms and fold balancing are label-dependent design steps. | – |
-| 5–7 Modelling, results, reporting | **Not started.** No model has been fitted, tuned or scored. | – |
+| 3 Methodological design | Implemented with the brief's settings; where the brief left a choice, the recommendation below is the configured default (§8). | §3–§6, §8 |
+| 4 R blockCV / variograms | Scripts written and executed in the smoke test, after the external holdout was locked (§8). | `R/` |
+| 5–7 Modelling, results, reporting | Notebooks written and **smoke-tested only**. No experimental model score exists yet. | `notebooks/`, §8 |
 
 There is no earlier experiment, saved prediction or model score in this project. The only label statistics computed so far are the descriptive audit counts in §1. They cover all boreholes, including the ones that will later be reserved for external evaluation. §5.6 explains why the holdout selection does not use them.
 
@@ -399,17 +399,17 @@ For every model × scenario × block size: Accuracy, balanced accuracy, Macro-F1
 
 ## 6. Practical workflow and computational requirements
 
-### 6.1 Repository layout (planned)
+### 6.1 Repository layout
 
 ```
-config/        project.toml (constants), search spaces, block-size decision, holdout hash
-data/raw/      received files (git-ignored)
-scripts/       01_audit (done), 02_verify_sources (done), 03_preprocess, 04_select_external
-R/             10_variograms.R, 11_blockcv_folds.R (blockCV 4.0-1, renv.lock)
-notebooks/     preprocessing, five-model nested CV, results (Jupyter)
-src/           shared Python: fold import, models, GW wrappers, metrics
-outputs/       per stage; restricted/ subfolders git-ignored
-tests/         fold integrity, leakage, determinism, R/Python fold equality
+config/        project.toml (all settings and search spaces), external_holdout.lock.json (hash only)
+data/raw/      received files (git-ignored); data/processed/, data/folds/ (git-ignored)
+scripts/       01_audit_raw_data.py, 02_verify_sources.py
+R/             00_install_packages.R, 01_spatial_autocorrelation.R, 02_blockcv_folds.R
+notebooks/     01_preprocessing ... 05_final_model_external_3d (committed without outputs)
+src/siemreap/  config, data, geo, folds, models, gw, metrics, nested_cv, grid3d, plots
+tests/         unit tests on synthetic data
+outputs/       per stage; restricted/, checkpoints, models and smoke/ are git-ignored
 ```
 
 ### 6.2 Software
@@ -428,21 +428,9 @@ One outer fold, two inner folds, three trials per model, small forests. Outputs 
 * bit-identical predictions on rerun;
 * GW fallback triggered on a synthetic case.
 
-### 6.4 Compute estimate (to be replaced by measured smoke-test timings)
+### 6.4 Compute
 
-Data are small: about 1.9k development cells in Scenario A and 2.3k in B. Assumptions on a typical 8-core laptop: RF/XGB fit ≈ 0.2–0.5 s, MLP ≈ 1–3 s, GW fit ≈ 110–135 local fits ≈ 10–20 s.
-
-| Component | Fits per model, scenario, block size | Estimated wall time (8 cores) |
-|---|---|---|
-| RF, XGB | 5 × 4 × 50 = 1,000 | 5–15 min each |
-| MLP | 1,000 | 0.5–1.5 h |
-| GWRF, GWXGB | 5 × 4 × 30 = 600 | 1–3 h each |
-| One block size, both scenarios, all 5 models | – | **≈ 6–15 h** |
-| Robustness (two more block sizes) + purge | – | ≈ 2× the primary |
-| R variograms and blockCV | – | minutes |
-| 3D prediction (≈ 10⁵ columns × 30 layers) | – | minutes (global), < 1 h (GW) |
-
-Total: roughly 1–2 days of unattended computing. Memory is not a constraint.
+Measured timings and the full-run estimate are in §8.4.
 
 ---
 
@@ -486,3 +474,66 @@ Total: roughly 1–2 days of unattended computing. Memory is not a constraint.
 | D15 | **New:** prediction-distance validation (§4.2). | Add `cv_knndm` (blockCV) with the Downtown 25 m grid as the prediction domain, as an analysis beside the 100/200/300 m designs, and a validated-distance mask on the 3D map. |
 
 Once M2–M4 and M16–M17 are resolved (or explicitly waived) and D1–D15 are approved, the next steps are, in order: freeze the preprocessing; select and hash the external boreholes; run the R variogram and blockCV analysis; then the smoke test.
+
+---
+
+## 8. Implementation and smoke test (2026-10-12)
+
+You asked to set the Excel workbook aside and to implement the ML workflow with the settings of the research brief. The CSV is therefore the single data source (D14). The pipeline is `R/` + `notebooks/` + `src/siemreap/`, configured entirely from `config/project.toml`; the README gives the run order.
+
+### 8.1 Settings applied
+
+Where the brief fixes a setting, it is used as stated. Where it leaves a choice open, the recommendation of this report is the configured default and can be changed in one place:
+
+| Decision | Default in `config/project.toml` |
+|---|---|
+| D1 Training extents | Downtown and the 0–5 km ring by the polygon-verified `Region` (120 and 25 boreholes before the external holdout) |
+| D2 ML / CL-ML | Excluded (never converted to Clay) |
+| D3 Discretisation | 0.5 m cells labelled only from overlapping sample intervals (≥ 50 % coverage, no conflict); `Top_Elevation_m` = ground − cell top |
+| D4 Long records | Records > 3 m ignored |
+| D5 Logged vs lab class | Logged USCS kept |
+| D6 Reference | Depth-band prior reported beside the five models, excluded from selection |
+| D7 Blocks | Square, k = 5, random balanced on the cell class, seed 20261012 |
+| D8 Primary block size | **100 m as planned by the brief.** The rule's result is recorded in notebook 02 (§8.3) |
+| D9 External holdout | 11 Downtown boreholes: 6 generalisation (5 isolated sites, 555–905 m from other boreholes) and 5 interpolation. Hash locked in `config/external_holdout.lock.json` |
+| D10 Selection | Pre-declared rule of §5.7 |
+| D11–D13 | Not applied as exclusions: training uses the CSV as received. The three boreholes with workbook depth or coordinate doubts are only barred from the external set, via a git-ignored flags file |
+| D15 kNNDM | Available in `R/02_blockcv_folds.R` (`knndm_diagnostic`), off by default |
+
+### 8.2 What the smoke test checked and fixed
+
+The complete chain (notebook 01 → R scripts → notebooks 02–05) ran with reduced budgets: one outer fold, 100 m blocks, two Optuna trials, a 100 m 3D grid. Outputs went to the git-ignored `outputs/smoke/`. **None of its scores is a result.** It exposed and fixed three software issues:
+
+1. **A borehole split by blockCV.** A Downtown borehole whose northing is a whole number lay exactly on a 100 m block edge, and `cv_spatial` assigned its cells to two folds. The R script now detects any split and shifts the blocks by 0.01 % of the block size (1 cm at 100 m) until none remains, recording the offset used (1 cm for all three sizes).
+2. **Last-bit nondeterminism in RF predictions** from multi-threaded tree averaging (3 × 10⁻¹⁶). Prediction is now single-threaded, and a re-fitted fold reproduces its stored predictions bit for bit (checked in notebook 03).
+3. **GWRF cost.** Local models are now fitted only for the anchors that a prediction actually uses. A unit test shows the predictions are bit-identical to fitting every anchor. This cut the per-trial cost about fivefold.
+
+Further checks that passed:
+* Python and R test-to-train distances agree to 0.01 m.
+* Re-using the remaining outer folds as inner folds passes the adequacy check for all 30 outer-fold × block × scenario cases, so the R fallback folds were not needed.
+* The external boreholes never enter any training set, and in smoke mode their labels are never read; notebook 05 uses a development stand-in.
+* 9 unit tests on synthetic data pass.
+
+**Sandbox limitation.** This environment's network policy blocks CRAN, so the R package `automap` could not be installed here. blockCV 4.0-1 was installed unmodified from the supplied source against an empty placeholder, never committed, so that `cv_spatial` and `cv_distance` could run; neither calls automap. `cv_spatial_autocor` therefore did not run here; its failure is recorded in the output table. On your machine `R/00_install_packages.R` installs the real automap from CRAN.
+
+### 8.3 Primary block size: the pre-registered rule disagrees with the planned 100 m
+
+Notebook 02 evaluates the rule of §4.3 from geometry and the response variograms only; no model score is involved. With the development boreholes:
+
+* **r̃.** The median practical range over the ten 1.5 m slices is about 100 m. Five slices show no structure resolvable beyond the first 25 m lag.
+* **Wasserstein distance.** *W* between test-to-train and prediction distances is 722 for 100 m blocks, 625 for 200 m and 624 for 300 m.
+* **Rule outcome: 300 m.** 100 m blocks reach r̃ but leave *W* more than 10 % above the minimum.
+
+These inputs come from the smoke run; the full run reproduces them except the subsampling interval. **Your decision:** keep 100 m as the brief plans (with this reason documented), or set `primary_block_m = 300` before notebook 03. All three sizes are run either way.
+
+### 8.4 Measured cost and full-run estimate
+
+Seconds per Optuna trial on one outer fold, full model sizes, 4 cores (each trial is four inner fits):
+
+| | RF | XGB | MLP | GWRF | GWXGB |
+|---|---|---|---|---|---|
+| Scenario A | 8.7 | 0.7 | 9.0 | 20.6 | 1.4 |
+| Scenario B | 8.8 | 0.7 | 39.3 | 21.0 | 2.8 |
+
+With 50/50/50/30/30 trials × 5 folds × 2 scenarios, one block size takes about 6.6 h. The full experiment is about 23 h on 4 cores: three block sizes plus the purge runs, about 2.6 h. Most of the time goes to the MLP in Scenario B, RF and GWRF. Notebook 03 is resumable and can run one block size at a time (`RUN_BLOCKS`). Run the primary block size first.
+

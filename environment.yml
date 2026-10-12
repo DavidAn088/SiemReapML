@@ -1,0 +1,10 @@
+# Windows / macOS / Linux:  conda env create -f environment.yml  &&  conda activate siemreap-ml
+name: siemreap-ml
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - gdal              # binary GIS stack from conda-forge avoids compiling on Windows
+  - pip:
+      - -r requirements.txt
