@@ -108,7 +108,8 @@ min_class_share = 0.20
 
 [experiment]
 scenarios = ["A", "B"]            # A: Downtown only; B: Downtown + 5 km ring
-models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]
+models = ["RF", "XGB", "GP", "MLP", "GWRF", "GWXGB"]   # all run on the primary block size
+robustness_models = ["RF", "XGB", "GP"]   # the models also run on the other block sizes (with the reference)
 reference_baseline = true         # depth-band prior, reported beside the five models (D6)
 n_jobs = 4                        # threads per model fit
 threshold_grid = [0.05, 0.95, 0.01]  # start, stop, step of the inner-CV decision threshold search
@@ -122,6 +123,7 @@ XGB = 50
 MLP = 50
 GWRF = 30
 GWXGB = 30
+GP = 1                            # no search: kernel hyperparameters by maximum marginal likelihood
 
 [gw]
 # Geographically weighted RF / XGBoost (Georganos et al. 2021; Grekousis 2025), adapted to
@@ -131,6 +133,20 @@ min_cells_per_class = 20
 max_neighbours = 80               # neighbourhood may grow to this size before falling back
 local_rf_trees = 100
 local_xgb_rounds_max = 300
+
+[gp]
+# Gaussian process classifier (Laplace approximation; Rasmussen & Williams 2006), the ML
+# counterpart of indicator kriging. Anisotropic Matern kernel with separate correlation
+# lengths for Easting, Northing and elevation, fitted by maximum marginal likelihood in each
+# training partition (values below are starting points and bounds, not tuned settings).
+nu = 1.5
+amplitude = 1.0
+amplitude_bounds = [0.01, 10000.0]
+horizontal_length_m = 200.0
+horizontal_bounds_m = [5.0, 20000.0]
+vertical_length_m = 3.0
+vertical_bounds_m = [0.1, 100.0]
+predict_chunk_rows = 10000             # bounds memory when predicting the 3D grid
 
 [grid3d]
 spacing_m = 25.0                  # XY spacing of prediction columns inside the Downtown polygon
@@ -196,3 +212,6 @@ min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
 subsample = { type = "float", low = 0.6, high = 1.0 }
 reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
 class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.GP]
+# empty: the GP has no Optuna search (see [gp])

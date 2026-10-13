@@ -11,7 +11,7 @@ INK, INK2, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 SCENARIO = {"A": BLUE, "B": ORANGE}
 SCENARIO_LABEL = {"A": "A: Downtown only", "B": "B: Downtown + 5 km"}
 CLASS = {1: BLUE, 0: ORANGE}
-MODEL_ORDER = ["RF", "XGB", "MLP", "GWRF", "GWXGB", "DEPTH_PRIOR"]
+MODEL_ORDER = ["RF", "XGB", "MLP", "GWRF", "GWXGB", "GP", "DEPTH_PRIOR"]  # palette slot order; colour follows the model
 
 
 def style(ax, grid_axis="both"):
@@ -50,7 +50,7 @@ def fold_dotplot(folds: pd.DataFrame, metric="macro_f1", title=None, ax=None):
 
 
 MODEL_COLOURS = {"RF": "#2a78d6", "XGB": "#eb6834", "MLP": "#1baf7a", "GWRF": "#eda100", "GWXGB": "#e87ba4",
-                 "DEPTH_PRIOR": "#52514e"}
+                 "GP": "#008300", "DEPTH_PRIOR": "#52514e"}
 
 
 def band_plot(tab: pd.DataFrame, key: str, metric="macro_f1", title=None, axes=None):

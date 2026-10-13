@@ -7,9 +7,9 @@
 | Stage | State |
 |---|---|
 | 1–2 Source review, data audit | Done (`scripts/01_audit_raw_data.py`, `scripts/02_verify_sources.py`) |
-| 3 Experimental design | Documented; implemented with the brief's settings in `config/project.toml` |
+| 3 Experimental design | Documented; implemented with the brief's settings in `config/project.toml`; revised 2026-10-13 after advisor review (GP added, robustness subset; design report §9) |
 | 4 R spatial autocorrelation + blockCV folds | Scripts ready (`R/`); executed in the smoke test |
-| 5 Nested CV, 5 models × 2 training extents | Notebooks ready; **smoke-tested only** |
+| 5 Nested CV, 6 ML models × 2 training extents | Full run in progress on the author's computer |
 | 6–7 Results, final model, external test, 3D output | Notebooks ready; **smoke-tested only** |
 
 **No experimental result exists yet.** The smoke test checks that the software runs end to end with reduced budgets. Its outputs live in the git-ignored `outputs/smoke/` and must not be reported.
@@ -23,7 +23,7 @@ R/01_spatial_autocorrelation.R              indicator variograms by depth slice,
 R/02_blockcv_folds.R                        blockCV folds 100/200/300 m, cv_distance, fallback inner folds
 notebooks/02_spatial_folds_review.ipynb     fold integrity, real test-to-train distances, inner-fold adequacy,
                                             purge effect, primary-block decision (recorded before modelling)
-notebooks/03_nested_cv_models.ipynb         RF, XGB, MLP, GWRF, GWXGB (+ depth-prior reference) x scenarios A/B
+notebooks/03_nested_cv_models.ipynb         RF, XGB, GP, MLP, GWRF, GWXGB (+ depth-prior reference) x scenarios A/B
                                             x block sizes, Optuna, checkpointed, determinism check
 notebooks/04_results_analysis.ipynb         all metrics, folds/pooled/borehole/depth/distance, robustness,
                                             pre-declared model selection
@@ -53,8 +53,9 @@ notebooks/05_final_model_external_3d.ipynb  final model, frozen; external evalua
 | Predictors | `UTM_Easting_m`, `UTM_Northing_m`, `Top_Elevation_m = Ground_Elevation_m − cell top depth` |
 | Scenarios | A: Downtown development boreholes. B: A + 5 km ring boreholes (training only). Identical Downtown test folds |
 | Outer CV | blockCV `cv_spatial`, square blocks 100 m (planned primary), 200 m and 300 m; k = 5; random balanced; seeded |
+| Models | RF, XGB, Gaussian process (GP), MLP, GWRF, GWXGB, plus a depth-only reference. All run on the primary block size; RF, XGB and GP also on 200/300 m |
 | Inner CV | the four remaining outer folds (adequacy-checked; R fallback folds otherwise) |
-| Tuning | Optuna TPE; 50 trials (RF, XGB, MLP) and 30 (GWRF, GWXGB) per outer fold; inner-OOF Macro-F1; threshold from inner OOF |
+| Tuning | Optuna TPE; 50 trials (RF, XGB, MLP) and 30 (GWRF, GWXGB) per outer fold; inner-OOF Macro-F1; threshold from inner OOF. GP: kernel fitted by maximum marginal likelihood, no search |
 | External holdout | 11 Downtown boreholes in two groups: generalisation (isolated sites ≥ 500 m) and interpolation. Chosen without labels; hash locked in `config/external_holdout.lock.json` |
 | Selection | pre-declared rule on the primary block size (recall constraints, then Macro-F1, then 1-SE rule) |
 | 3D output | 25 m columns × 30 layers inside the Downtown polygon; ground from the same bilinear DEM sampler as the boreholes; CSV points and a netCDF voxel file |

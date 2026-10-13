@@ -130,3 +130,25 @@ def test_threshold_and_metrics():
     assert f == 1.0 and t == pytest.approx(0.40)  # separable in (0.35, 0.40]; ties go to the value nearest 0.5
     r = M.metric_row(y, p, (p >= 0.5).astype(int))
     assert r["recall_clay"] == pytest.approx(2 / 3) and r["recall_sand"] == 1.0 and r["tp"] == 2
+
+
+def test_gp_is_deterministic_and_chunked_prediction_matches(cfg):
+    c = synthetic_cells(12)
+    X, y = c[["UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m"]].values, c.y.values
+    small = {**cfg, "gp": {**cfg["gp"], "predict_chunk_rows": 7}}
+    p1 = build("GP", {}, cfg, seed=3).fit(X, y).predict_proba(X)[:, 1]
+    p2 = build("GP", {}, cfg, seed=3).fit(X, y).predict_proba(X)[:, 1]
+    p3 = build("GP", {}, small, seed=3).fit(X, y).predict_proba(X)[:, 1]
+    assert np.array_equal(p1, p2)
+    assert np.allclose(p1, p3, rtol=0, atol=1e-9)  # chunks change only floating-point rounding
+    assert ((p1 > 0) & (p1 < 1)).all()
+
+
+def test_robustness_models_only_off_the_primary_block(cfg):
+    from siemreap.nested_cv import BASELINE, specs_from_config
+    specs = [s for s in specs_from_config(cfg, "full") if s.purge_m == 0]
+    primary = cfg["blockcv"]["primary_block_m"]
+    on = {s.model for s in specs if s.block_m == primary}
+    off = {s.model for s in specs if s.block_m != primary}
+    assert on == set(cfg["experiment"]["models"]) | {BASELINE}
+    assert off == set(cfg["experiment"]["robustness_models"]) | {BASELINE}

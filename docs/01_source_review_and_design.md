@@ -14,6 +14,7 @@
 | 3 Methodological design | Implemented with the brief's settings; where the brief left a choice, the recommendation below is the configured default (§8). | §3–§6, §8 |
 | 4 R blockCV / variograms | Scripts written and executed in the smoke test, after the external holdout was locked (§8). | `R/` |
 | 5–7 Modelling, results, reporting | Notebooks written and **smoke-tested only**. No experimental model score exists yet. | `notebooks/`, §8 |
+| Design revision | 2026-10-13 after advisor review: GP added; MLP, GWRF and GWXGB on the primary block size only. | §9 |
 
 There is no earlier experiment, saved prediction or model score in this project. The only label statistics computed so far are the descriptive audit counts in §1. They cover all boreholes, including the ones that will later be reserved for external evaluation. §5.6 explains why the holdout selection does not use them.
 
@@ -537,3 +538,40 @@ Seconds per Optuna trial on one outer fold, full model sizes, 4 cores (each tria
 
 With 50/50/50/30/30 trials × 5 folds × 2 scenarios, one block size takes about 6.6 h. The full experiment is about 23 h on 4 cores: three block sizes plus the purge runs, about 2.6 h. Most of the time goes to the MLP in Scenario B, RF and GWRF. Notebook 03 is resumable and can run one block size at a time (`RUN_BLOCKS`). Run the primary block size first.
 
+
+## 9. Design change after advisor review (2026-10-13)
+
+### 9.1 What changed
+
+1. **A Gaussian process classifier (GP) is added** as a sixth ML model family (`GPModel` in `src/siemreap/models.py`, settings in `[gp]`).
+2. **MLP, GWRF and GWXGB run on the primary block size only.** The robustness runs on 200 and 300 m use RF, XGB and GP plus the depth-only reference (`robustness_models` in `[experiment]`). The purge runs are unchanged (RF and XGB).
+
+The brief names five model families run on all block sizes. Both points are deviations from it and are to be reported as such.
+
+### 9.2 Why
+
+The advisor questioned whether the chosen models suit the data. The audit supports that for three of them:
+
+* **Data.** There are 109 Downtown development boreholes (1,896 cells, strongly correlated within a borehole), three coordinate predictors only, a horizontal range of about 100 m, and prediction distances well beyond it (median 746 m).
+* **MLP.** It needs far more independent samples than this data provides.
+* **GWRF and GWXGB.** They need dense neighbourhoods of boreholes, which most of the domain lacks.
+* **Cost.** Together these three take about 90 % of the compute.
+
+The GP models the spatial correlation directly. It is the machine-learning counterpart of indicator kriging: a latent Gaussian process with an anisotropic Matern kernel (ν = 1.5) and separate correlation lengths for Easting, Northing and elevation, fitted by maximum marginal likelihood (Laplace approximation; Rasmussen & Williams 2006) inside each training partition. It therefore needs no Optuna search; the inner folds only set its decision threshold. The student chose to stay within ML rather than add a geostatistical model.
+
+### 9.3 What was known when the decision was made
+
+The decision was made during the full run of notebook 03. At that point the only printed scores were the inner tuning scores of RF and XGB (five outer folds) and MLP (two outer folds), Scenario A, 100 m blocks. No outer-fold (test) score of any model had been computed, and the external holdout was untouched. The change rests on suitability and compute, not on scores.
+
+### 9.4 Integrity of the running experiment
+
+* **Existing checkpoints stay valid.** The run fingerprint of every existing model × scenario × block × purge combination is unchanged (all 108 checked), so finished folds are reused, not recomputed.
+* **GP has its own fingerprint,** which includes the `[gp]` settings.
+* **Tests.** Unit tests check that the GP is deterministic, that chunked prediction changes only floating-point rounding (≤ 10⁻⁹), and that the robustness subset is applied only off the primary block size.
+
+### 9.5 Cost
+
+* **One GP fit.** It takes about 65–70 s at 1,500–1,900 training cells on the 4-core development machine.
+* **Per block size.** One GP run (5 outer folds × 5 fits) takes roughly 20–30 min per scenario.
+* **3D grid.** If the GP becomes the final model, predicting the 25 m grid takes about 30–60 min.
+* **Whole experiment.** It drops from about 23–26 h to roughly 12–13 h on the author's machine. The primary block size remains the largest share, mainly the MLP in Scenario B.

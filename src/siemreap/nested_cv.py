@@ -84,13 +84,13 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
         mask = np.isin(groups, inner_ids)
         return oof, mask
 
-    if spec.model == BASELINE:
+    space = cfg["search_space"].get(spec.model, {})
+    if spec.model == BASELINE or not space:  # depth-only reference; GP (kernel fitted by marginal likelihood)
         params = {}
         oof, mask = inner_oof(params)
         thr, inner_f1 = best_threshold(ytr[mask], oof[mask], grid)
         trials = pd.DataFrame([{"number": 0, "value": inner_f1, "user_attrs_threshold": thr}])
     else:
-        space = cfg["search_space"][spec.model]
         n_trials = n_trials or (cfg["smoke"]["n_trials"] if smoke else cfg["experiment"]["n_trials"][spec.model])
 
         def objective(trial):
@@ -136,6 +136,8 @@ def fingerprint(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, cfg: di
              "smoke": cfg["smoke"], "threshold_grid": cfg["experiment"]["threshold_grid"], "inner_cv": cfg["inner_cv"],
              "gw": cfg["gw"], "folds": pd.util.hash_pandas_object(folds.sort_index(), index=True).sum().item(),
              "cells": pd.util.hash_pandas_object(cells[["BH_Code", "cell", "y", *FEATURES]], index=False).sum().item()}
+    if spec.model == "GP":  # added per model, so the fingerprints of the other models are unchanged
+        parts["gp"] = cfg["gp"]
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -172,15 +174,18 @@ def run(cells: pd.DataFrame, cfg: dict, spec: RunSpec, outer_folds: list[int], m
 
 
 def specs_from_config(cfg: dict, mode: str) -> list[RunSpec]:
-    """Every run of the experiment: 5 models (+ reference) x 2 scenarios x block sizes, plus
-    the separate purge analysis on the primary block size."""
+    """Every run of the experiment: all models (+ reference) x 2 scenarios on the primary block
+    size, the robustness models (+ reference) on the other block sizes, and the separate purge
+    analysis on the primary block size."""
     ex, bc = cfg["experiment"], cfg["blockcv"]
     blocks = cfg["smoke"]["block_sizes_m"] if mode == "smoke" else bc["block_sizes_m"]
-    models = list(ex["models"]) + ([BASELINE] if ex.get("reference_baseline") else [])
-    specs = [RunSpec(s, int(b), m) for b in blocks for s in ex["scenarios"] for m in models]
+    primary = int(blocks[0]) if mode == "smoke" else int(bc["primary_block_m"])
+    reference = [BASELINE] if ex.get("reference_baseline") else []
+    robust = list(ex.get("robustness_models", ex["models"]))
+    specs = [RunSpec(s, int(b), m) for b in blocks for s in ex["scenarios"]
+             for m in (list(ex["models"]) if int(b) == primary else robust) + reference]
     purge = ex["purge_distances_m"][:1] if mode == "smoke" else ex["purge_distances_m"]
     purge_models = ex["purge_models"][:1] if mode == "smoke" else ex["purge_models"]
-    primary = int(blocks[0]) if mode == "smoke" else int(bc["primary_block_m"])
     specs += [RunSpec(s, primary, m, float(d)) for d in purge for s in ex["scenarios"] for m in purge_models]
     return specs
 
@@ -209,7 +214,7 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
             _, oof[va] = _fit_predict(model_name, params, cfg, seed, smoke, Xtr[~va], ytr[~va], Xtr[va], dtr[~va], dtr[va])
         return oof
 
-    if model_name == BASELINE:
+    if model_name == BASELINE or not cfg["search_space"].get(model_name):
         params = {}
         thr, f1 = best_threshold(ytr[groups > 0], oof_of(params)[groups > 0], grid)
         trials = pd.DataFrame([{"number": 0, "value": f1, "user_attrs_threshold": thr}])

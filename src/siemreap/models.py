@@ -1,4 +1,4 @@
-"""The five model families, their Optuna search spaces and the depth-band reference.
+"""The model families, their Optuna search spaces and the depth-band reference.
 
 All models take X = [UTM_Easting_m, UTM_Northing_m, Top_Elevation_m] and expose
 fit(X, y) and predict_proba(X). Everything data-dependent (scaling, class weights) is
@@ -94,6 +94,39 @@ class MLPModel(ClassifierMixin, BaseEstimator):
         return self.model_.predict_proba(self.scaler_.transform(X))
 
 
+class GPModel(ClassifierMixin, BaseEstimator):
+    """Gaussian process classifier (Laplace approximation; Rasmussen & Williams 2006, ch. 3),
+    the machine-learning counterpart of indicator kriging. The anisotropic Matern kernel has
+    separate correlation lengths for Easting, Northing and elevation; they and the amplitude
+    are fitted by maximising the marginal likelihood on the training partition, so the model
+    has no Optuna search ([gp] in config/project.toml; an optional [search_space.GP] may
+    override its keys). Prediction is chunked to bound memory on the 3D grid."""
+
+    def __init__(self, params=None, seed=0, n_jobs=1, settings=None):
+        self.params, self.seed, self.n_jobs, self.settings = params, seed, n_jobs, settings
+
+    def fit(self, X, y):
+        from sklearn.gaussian_process import GaussianProcessClassifier
+        from sklearn.gaussian_process.kernels import ConstantKernel, Matern
+
+        s = {**self.settings, **(self.params or {})}
+        X = np.asarray(X, dtype=float)
+        self.center_ = X.mean(axis=0)
+        h, v = float(s["horizontal_length_m"]), float(s["vertical_length_m"])
+        hb, vb = tuple(s["horizontal_bounds_m"]), tuple(s["vertical_bounds_m"])
+        kernel = ConstantKernel(float(s["amplitude"]), tuple(s["amplitude_bounds"])) * Matern(
+            length_scale=[h, h, v], length_scale_bounds=[hb, hb, vb], nu=float(s["nu"]))
+        self.model_ = GaussianProcessClassifier(kernel, n_restarts_optimizer=0, random_state=self.seed)
+        self.model_.fit(X - self.center_, y)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict_proba(self, X):
+        X = np.asarray(X, dtype=float) - self.center_
+        n = int(self.settings["predict_chunk_rows"])
+        return np.vstack([self.model_.predict_proba(X[i:i + n]) for i in range(0, len(X), n)])
+
+
 def build(name: str, params: dict, cfg: dict, seed: int, smoke: bool = False):
     """Instantiate a model family with a parameter set from its search space."""
     n_jobs = cfg["experiment"]["n_jobs"]
@@ -110,6 +143,8 @@ def build(name: str, params: dict, cfg: dict, seed: int, smoke: bool = False):
         return XGBModel(p, seed, n_jobs)
     if name == "MLP":
         return MLPModel(p, seed, n_jobs)
+    if name == "GP":
+        return GPModel(p, seed, n_jobs, cfg["gp"])
     if name in ("GWRF", "GWXGB"):
         g = cfg["gw"]
         base = "rf" if name == "GWRF" else "xgb"
