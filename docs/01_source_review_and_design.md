@@ -15,6 +15,7 @@
 | 4 R blockCV / variograms | Scripts written and executed in the smoke test, after the external holdout was locked (§8). | `R/` |
 | 5–7 Modelling, results, reporting | Notebooks written and **smoke-tested only**. No experimental model score exists yet. | `notebooks/`, §8 |
 | Design revision | 2026-10-13 after advisor review: GP added; MLP, GWRF and GWXGB on the primary block size only. | §9 |
+| Design revision 2 | 2026-10-13: gap filling for training (scores on measured cells only); all six models on every block size; full restart. | §10 |
 
 There is no earlier experiment, saved prediction or model score in this project. The only label statistics computed so far are the descriptive audit counts in §1. They cover all boreholes, including the ones that will later be reserved for external evaluation. §5.6 explains why the holdout selection does not use them.
 
@@ -575,3 +576,38 @@ The decision was made during the full run of notebook 03. At that point the only
 * **Per block size.** One GP run (5 outer folds × 5 fits) takes roughly 20–30 min per scenario.
 * **3D grid.** If the GP becomes the final model, predicting the 25 m grid takes about 30–60 min.
 * **Whole experiment.** It drops from about 23–26 h to roughly 12–13 h on the author's machine. The primary block size remains the largest share, mainly the MLP in Scenario B.
+
+## 10. Design revision 2 (2026-10-13): gap filling, all six models on every block size
+
+### 10.1 What changed
+
+1. **Gap filling.** An unsampled gap between two measured cells of the same class is labelled with that class (`fill_gaps`, `fill_max_gap_m` in `[depth]`; `siemreap.data.fill_gaps`). A gap stays unlabelled when:
+   * the classes above and below differ;
+   * any record of any kind touches it: the other class, ML or CL-ML, a missing symbol, or an ignored long record;
+   * it is longer than 3 m;
+   * it lies above the first or below the last measured cell.
+
+   Filled cells carry `measured = 0`. This deviates from the brief ("never … create synthetic labels for unknown intervals").
+2. **All six models on every block size.** That is the brief's five (RF, XGB, MLP, GWRF, GWXGB) plus the GP of §9. The block-size subset of §9.1 (point 2) is withdrawn; `robustness_models` remains as an optional setting and is off.
+3. **The experiment restarts from scratch.** The training data differ, so no checkpoint of the earlier run is valid, and the run fingerprints now include the measured/filled flag. Use a fresh project folder.
+
+### 10.2 Why
+
+This is the student's decision, on geological grounds: between two samples of the same class 1–1.5 m apart, the soil is very likely the same, and filling uses that information for training. Two checks on the development data support the assumption:
+
+* **Filled cells.** The rule fills 819 cells in the Downtown development boreholes, against 1,896 measured cells (+43 %).
+* **Agreement.** A measured cell whose nearest measured cells from other records above and below share a class has that same class in 99.0 % of the 1,546 such cells in the development boreholes, 99.8 % in the Downtown ones and 95 % in the 5 km ring ones (`data.fill_rule_check`, printed in notebook 01). Filled ring cells, used only in Scenario B, are therefore somewhat less certain.
+
+### 10.3 Safeguards: filled cells are never scored
+
+A filled cell is never test data. Only same-class gaps are filled, so scoring filled cells would weight the test toward easy cells inside thick layers and inflate every metric. Therefore:
+
+* **Measured cells only:** the outer test folds, the inner validation scores, the decision thresholds and the external evaluation;
+* **Measured cells only:** the variograms and the R blockCV folds, which are therefore identical to those of the design without filling;
+* **All cells, measured and filled:** training, in both the inner and outer loops, and the final model.
+
+Two unit tests cover the rule and the measured-only scoring. Because every reported score is on measured soil, the results stay comparable with a run without filling. Running the same notebooks in a separate folder with `fill_gaps = false` gives that comparison, if wanted.
+
+### 10.4 Cost
+
+The training sets grow by roughly 40–50 %, which slows every fit. The GP grows fastest, because its cost rises with the cube of the training size. The whole experiment (50 runs × 5 outer folds) is estimated at roughly 1.5–2.5 days on one 4-core PC. The MLP in Scenario B is the largest and least certain part. Notebook 03 is checkpointed. It can run the 100 m primary block first (`RUN_BLOCKS = [100]`), or be split across two computers by block size.

@@ -3,8 +3,9 @@
 All rules follow the research brief (sections 4 and 10) and config/project.toml:
 
 * binary target CL/CH -> Clay = 1, SC/SM/SP -> Sand = 0; every other symbol is excluded;
-* 0.5 m cells between 0 and 15 m below ground; a cell is labelled only from the sample
-  intervals that overlap it (never by extending a layer or interpolating between samples);
+* 0.5 m cells between 0 and 15 m below ground; a cell is labelled from the sample intervals
+  that overlap it; optionally (`fill_gaps`, design report section 10) an unsampled gap between
+  two measured cells of the same class is filled for training, flagged measured = 0;
 * predictors UTM_Easting_m, UTM_Northing_m and Top_Elevation_m = Ground_Elevation_m - cell
   top depth (the brief's Top = Ground - Depth_From applied to the cell);
 * every cell keeps its borehole code and the CSV line numbers of the records it came from.
@@ -122,6 +123,81 @@ def discretise(df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
             "intervals_longer_than_max_ignored": int(((length > dc["max_interval_m"]) & df.USCS.isin(clay | sand)).sum()),
             "records_outside_binary_map": int((df.USCS.notna() & ~df.USCS.isin(clay | sand)).sum())}
     return cells, info
+
+
+def fill_gaps(cells: pd.DataFrame, df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
+    """Fill unsampled cells between two measured cells of the same class (design revision of
+    2026-10-13, design report section 10; a deviation from the brief, which forbids labels for
+    unknown intervals).
+
+    A gap is filled only when (a) the measured cells directly above and below it have the same
+    class, (b) it is at most `fill_max_gap_m` thick, and (c) no record of any kind touches any
+    of its cells (another class, a symbol outside the binary map, a missing symbol, an ignored
+    long record). Nothing is filled above the first or below the last measured cell. Every
+    cell gets `measured` (1 = from records, 0 = filled); filled cells are for training only and
+    every evaluation uses measured cells."""
+    dc = cfg["depth"]
+    cells = cells.assign(measured=1, filled_between="")
+    if not dc.get("fill_gaps", False):
+        return cells, {"fill_gaps": False, "filled_cells": 0}
+    cell_m = dc["cell_m"]
+    max_cells = int(round(dc["fill_max_gap_m"] / cell_m))
+    edges = np.arange(dc["top_m"], dc["bottom_m"] + 1e-9, cell_m)
+    tops, bots = edges[:-1], edges[1:]
+    touched = {}
+    for code, b in df.groupby("BH_Code", sort=False):
+        f, t = b.Depth_From_m.values, b.Depth_To_m.values
+        ov = np.minimum(t[None, :], bots[:, None]) - np.maximum(f[None, :], tops[:, None]) > 1e-9
+        touched[code] = set(np.where(ov.any(axis=1))[0].tolist())
+    new, n = [], {"gaps": 0, "different_class": 0, "too_long": 0, "touched_by_a_record": 0, "filled_gaps": 0}
+    for code, g in cells.sort_values(["BH_Code", "cell"]).groupby("BH_Code", sort=True):
+        recs = g.to_dict("records")
+        for a, b in zip(recs[:-1], recs[1:]):
+            gap = range(a["cell"] + 1, b["cell"])
+            if not len(gap):
+                continue
+            n["gaps"] += 1
+            if a[TARGET] != b[TARGET]:
+                n["different_class"] += 1
+            elif len(gap) > max_cells:
+                n["too_long"] += 1
+            elif touched.get(code, set()) & set(gap):
+                n["touched_by_a_record"] += 1
+            else:
+                n["filled_gaps"] += 1
+                for j in gap:
+                    new.append({**a, "cell": j, "depth_top_m": tops[j], "depth_mid_m": tops[j] + cell_m / 2,
+                                "Top_Elevation_m": a["Ground_Elevation_m"] - tops[j], "coverage": 0.0,
+                                "csv_lines": "", "sample_types": "fill", "from_long_record": False,
+                                "measured": 0, "filled_between": f"{a['csv_lines']}/{b['csv_lines']}"})
+    out = pd.concat([cells, pd.DataFrame(new, columns=cells.columns)], ignore_index=True)
+    out = out.sort_values(["BH_Code", "cell"]).reset_index(drop=True)
+    info = {"fill_gaps": True, "fill_max_gap_m": dc["fill_max_gap_m"], **n, "filled_cells": len(new),
+            "measured_cells": int(len(cells))}
+    return out, info
+
+
+def fill_rule_check(cells: pd.DataFrame) -> dict:
+    """Empirical check of the gap-filling assumption on measured cells: for each measured cell
+    whose nearest measured cells from other records above and below have the same class, how
+    often does the cell itself have that class too?"""
+    m = measured(cells).sort_values(["BH_Code", "cell"])
+    agree = n = 0
+    for _, g in m.groupby("BH_Code"):
+        ys = g.y.values
+        lines = [set(str(v).split(";")) for v in g.csv_lines.values]
+        for i in range(len(ys)):
+            up = next((j for j in range(i - 1, -1, -1) if not lines[j] & lines[i]), None)
+            dn = next((j for j in range(i + 1, len(ys)) if not lines[j] & lines[i]), None)
+            if up is not None and dn is not None and ys[up] == ys[dn]:
+                n += 1
+                agree += int(ys[i] == ys[up])
+    return {"cells_bracketed_by_same_class": n, "share_agreeing": round(agree / n, 4) if n else None}
+
+
+def measured(cells: pd.DataFrame) -> pd.DataFrame:
+    """The measured cells of a table (all of them when gap filling is off)."""
+    return cells[cells.measured == 1] if "measured" in cells.columns else cells
 
 
 # --------------------------------------------------------------- manual flags ----

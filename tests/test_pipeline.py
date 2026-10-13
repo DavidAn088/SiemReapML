@@ -144,11 +144,50 @@ def test_gp_is_deterministic_and_chunked_prediction_matches(cfg):
     assert ((p1 > 0) & (p1 < 1)).all()
 
 
-def test_robustness_models_only_off_the_primary_block(cfg):
+def test_every_model_on_every_block_unless_a_robustness_subset_is_set(cfg):
     from siemreap.nested_cv import BASELINE, specs_from_config
-    specs = [s for s in specs_from_config(cfg, "full") if s.purge_m == 0]
     primary = cfg["blockcv"]["primary_block_m"]
-    on = {s.model for s in specs if s.block_m == primary}
-    off = {s.model for s in specs if s.block_m != primary}
-    assert on == set(cfg["experiment"]["models"]) | {BASELINE}
-    assert off == set(cfg["experiment"]["robustness_models"]) | {BASELINE}
+
+    def models_by_block(c):
+        sp = [s for s in specs_from_config(c, "full") if s.purge_m == 0]
+        return {s.model for s in sp if s.block_m == primary}, {s.model for s in sp if s.block_m != primary}
+
+    on, off = models_by_block(cfg)
+    assert on == off == set(cfg["experiment"]["models"]) | {BASELINE}
+    on, off = models_by_block({**cfg, "experiment": {**cfg["experiment"], "robustness_models": ["RF"]}})
+    assert on == set(cfg["experiment"]["models"]) | {BASELINE} and off == {"RF", BASELINE}
+
+
+def test_fill_gaps_only_fills_untouched_same_class_gaps(cfg):
+    r = [  # ground 15 m; cell j covers [0.5 j, 0.5 j + 0.5)
+        ("B1", "P", "Downtown", 0, 0, 15.0, 1.0, 1.45, "SM", "SS", None),   # cell 2 Sand
+        ("B1", "P", "Downtown", 0, 0, 15.0, 2.5, 2.95, "SP", "SS", None),   # cell 5 Sand -> cells 3, 4 filled
+        ("B1", "P", "Downtown", 0, 0, 15.0, 4.0, 4.45, "CL", "SS", None),   # cell 8 Clay -> 6, 7 differ: not filled
+        ("B1", "P", "Downtown", 0, 0, 15.0, 4.7, 4.90, "ML", "SS", None),   # touches cell 9
+        ("B1", "P", "Downtown", 0, 0, 15.0, 5.5, 5.95, "CH", "SS", None),   # cell 11 Clay -> 9, 10 touched: not filled
+    ]
+    raw = raw_records(r)
+    cells, _ = data.discretise(raw, cfg)
+    on = {**cfg, "depth": {**cfg["depth"], "fill_gaps": True}}
+    out, info = data.fill_gaps(cells, raw, on)
+    filled = out[out.measured == 0]
+    assert list(filled.cell) == [3, 4] and (filled.y == 0).all()
+    assert info["different_class"] == 1 and info["touched_by_a_record"] == 1
+    assert np.allclose(out.Top_Elevation_m, 15.0 - out.depth_top_m)
+    assert out.cell.min() == 2  # nothing above the first measured cell
+    off = {**cfg, "depth": {**cfg["depth"], "fill_gaps": False}}
+    assert (data.fill_gaps(cells, raw, off)[0].measured == 1).all()
+
+
+def test_filled_cells_train_but_are_never_scored(cfg):
+    from siemreap.nested_cv import RunSpec, run_fold
+    c = synthetic_cells(40)
+    c["measured"] = np.where(c.cell % 3 == 1, 0, 1)  # every third cell plays a filled cell
+    bh = sorted(c.BH_Code.unique())
+    folds = pd.DataFrame({"BH_Code": bh, "fold": [i % 5 + 1 for i in range(len(bh))], "role": "cv",
+                          "block_size_m": 100}).set_index("BH_Code")
+    res = run_fold(c, folds, RunSpec("A", 100, "DEPTH_PRIOR"), 1, cfg, "full")
+    test_bh = set(folds.index[folds.fold == 1])
+    expect = c[c.BH_Code.isin(test_bh) & (c.measured == 1)]
+    assert len(res["predictions"]) == len(expect)
+    assert res["info"]["n_train_filled_cells"] > 0

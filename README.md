@@ -7,9 +7,9 @@
 | Stage | State |
 |---|---|
 | 1–2 Source review, data audit | Done (`scripts/01_audit_raw_data.py`, `scripts/02_verify_sources.py`) |
-| 3 Experimental design | Documented; implemented with the brief's settings in `config/project.toml`; revised 2026-10-13 after advisor review (GP added, robustness subset; design report §9) |
+| 3 Experimental design | Documented; implemented in `config/project.toml`; revised 2026-10-13: GP added (design report §9), gap filling for training with scores on measured cells only (§10) |
 | 4 R spatial autocorrelation + blockCV folds | Scripts ready (`R/`); executed in the smoke test |
-| 5 Nested CV, 6 ML models × 2 training extents | Full run in progress on the author's computer |
+| 5 Nested CV, 6 ML models × 2 training extents | Notebooks ready; smoke-tested; full run to be restarted with gap filling |
 | 6–7 Results, final model, external test, 3D output | Notebooks ready; **smoke-tested only** |
 
 **No experimental result exists yet.** The smoke test checks that the software runs end to end with reduced budgets. Its outputs live in the git-ignored `outputs/smoke/` and must not be reported.
@@ -49,11 +49,12 @@ notebooks/05_final_model_external_3d.ipynb  final model, frozen; external evalua
 | | |
 |---|---|
 | Target | CL/CH → Clay = 1; SC/SM/SP → Sand = 0; ML, CL-ML and missing symbols excluded, never converted |
-| Cells | 0–15 m below ground, 0.5 m, labelled only from overlapping sample intervals (≥ 50 % coverage) |
+| Cells | 0–15 m below ground, 0.5 m, labelled from overlapping sample intervals (≥ 50 % coverage) |
+| Gap filling | an unsampled gap between two measured cells of the same class is filled for **training**, if no record touches it; every score uses measured cells only |
 | Predictors | `UTM_Easting_m`, `UTM_Northing_m`, `Top_Elevation_m = Ground_Elevation_m − cell top depth` |
 | Scenarios | A: Downtown development boreholes. B: A + 5 km ring boreholes (training only). Identical Downtown test folds |
 | Outer CV | blockCV `cv_spatial`, square blocks 100 m (planned primary), 200 m and 300 m; k = 5; random balanced; seeded |
-| Models | RF, XGB, Gaussian process (GP), MLP, GWRF, GWXGB, plus a depth-only reference. All run on the primary block size; RF, XGB and GP also on 200/300 m |
+| Models | RF, XGB, MLP, GWRF, GWXGB and a Gaussian process (GP), each on every block size, plus a depth-only reference |
 | Inner CV | the four remaining outer folds (adequacy-checked; R fallback folds otherwise) |
 | Tuning | Optuna TPE; 50 trials (RF, XGB, MLP) and 30 (GWRF, GWXGB) per outer fold; inner-OOF Macro-F1; threshold from inner OOF. GP: kernel fitted by maximum marginal likelihood, no search |
 | External holdout | 11 Downtown boreholes in two groups: generalisation (isolated sites ≥ 500 m) and interpolation. Chosen without labels; hash locked in `config/external_holdout.lock.json` |

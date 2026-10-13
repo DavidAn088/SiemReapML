@@ -36,6 +36,11 @@ min_cell_coverage = 0.5
 # D4: sample intervals longer than this are not treated as measured strata (e.g. single
 # 0-20.5 m records); they contribute no labels.
 max_interval_m = 3.0
+# Design revision 2026-10-13 (design report section 10, a deviation from the brief): fill an
+# unsampled gap between two measured cells of the same class when no record of any kind
+# touches it. Filled cells are used for training only; every evaluation uses measured cells.
+fill_gaps = true
+fill_max_gap_m = 3.0              # same limit as max_interval_m
 # Depth bands for depth-specific metrics (brief section 11).
 bands_m = [0.0, 5.0, 10.0, 15.0]
 
@@ -108,8 +113,8 @@ min_class_share = 0.20
 
 [experiment]
 scenarios = ["A", "B"]            # A: Downtown only; B: Downtown + 5 km ring
-models = ["RF", "XGB", "GP", "MLP", "GWRF", "GWXGB"]   # all run on the primary block size
-robustness_models = ["RF", "XGB", "GP"]   # the models also run on the other block sizes (with the reference)
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB", "GP"]   # every model runs on every block size
+# robustness_models = ["RF", "XGB", "GP"]   # optional subset for the non-primary block sizes
 reference_baseline = true         # depth-band prior, reported beside the five models (D6)
 n_jobs = 4                        # threads per model fit
 threshold_grid = [0.05, 0.95, 0.01]  # start, stop, step of the inner-CV decision threshold search

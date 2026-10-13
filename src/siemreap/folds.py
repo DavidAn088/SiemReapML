@@ -56,7 +56,7 @@ def validate_outer(folds: pd.DataFrame, cells: pd.DataFrame, cfg: dict) -> dict:
     ring = folds[folds.role == "train_only"]
     if set(ring.index) - dev_ring or (ring.fold != 0).any():
         problems.append("train_only rows must be 5 km ring development boreholes with fold 0")
-    c = cells[cells.in_A].join(cv.fold, on="BH_Code")
+    c = cells[cells.in_A & (cells.measured == 1 if "measured" in cells else True)].join(cv.fold, on="BH_Code")
     per = c.groupby("fold").agg(boreholes=("BH_Code", "nunique"), cells=("y", "size"), clay_share=("y", "mean"))
     if (per.clay_share <= 0).any() or (per.clay_share >= 1).any():
         problems.append("a test fold contains only one class")
@@ -89,8 +89,9 @@ def _bh_xy(cells: pd.DataFrame) -> pd.DataFrame:
 def adequacy(train: pd.DataFrame, groups: np.ndarray, cfg: dict) -> pd.DataFrame:
     ic = cfg["inner_cv"]
     rows = []
+    meas = train.measured.values == 1 if "measured" in train else np.ones(len(train), bool)
     for g in sorted(set(groups[groups > 0])):
-        v = train[groups == g]
+        v = train[(groups == g) & meas]  # validation is scored on measured cells only
         share = v.y.mean()
         rows.append({"inner_fold": int(g), "boreholes": v.BH_Code.nunique(), "cells": len(v),
                      "clay_share": round(float(share), 3),

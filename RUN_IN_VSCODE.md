@@ -72,7 +72,7 @@ The smoke run uses one outer fold, the 100 m blocks, two Optuna trials and a 100
 |---|---|
 | `01_preprocessing` | **Run All.** The last cell runs `R/00_install_packages.R`, `R/01_spatial_autocorrelation.R` and `R/02_blockcv_folds.R`, showing R's messages as they come. If it says *Rscript not found*, set `RSCRIPT = r"C:\Program Files\R\R-4.x.x\bin\Rscript.exe"` in that cell and run the cell again |
 | `02_spatial_folds_review` | Review the folds and the block-size rule. The planned primary block is 100 m (`primary_block_m` in `config/project.toml`). If you decide otherwise, change that value **before notebook 03**, run notebook 02 again so it records the decision, and write down the reason |
-| `03_nested_cv_models` | The long run: roughly 12–13 h for everything (it depends on the computer). Set `n_jobs` in `config/project.toml` to your number of cores. You can run part of it first, e.g. `RUN_BLOCKS = [100]`. It saves a checkpoint after every outer fold, so if VS Code closes or the PC sleeps, run the notebook again and it continues from where it stopped |
+| `03_nested_cv_models` | The long run: roughly 1.5–2.5 days on one 4-core PC for everything (it depends on the computer); run `RUN_BLOCKS = [100]` first to get the primary results sooner, or split the block sizes across two computers. Set `n_jobs` in `config/project.toml` to your number of cores. You can run part of it first, e.g. `RUN_BLOCKS = [100]`. It saves a checkpoint after every outer fold, so if VS Code closes or the PC sleeps, run the notebook again and it continues from where it stopped |
 | `04_results_analysis` | Metrics, figures and the pre-declared model selection |
 | `05_final_model_external_3d` | Final model, the one-time external evaluation, and the 3D output for ArcGIS Pro |
 
