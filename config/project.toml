@@ -1,0 +1,222 @@
+# Design constants for the Siem Reap 3D Clay/Sand classification project.
+# Values follow the research brief (docs/research_brief.md). Where the brief leaves a choice
+# open, the value used here is the recommendation in docs/01_source_review_and_design.md and
+# is marked with the decision number (Dn) it implements, so it can be changed in one place.
+
+[data]
+raw_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+# SHA-256 of the file received on 2026-10-12. The audit refuses to run on a different file
+# unless --allow-checksum-mismatch is passed, so every reported number is tied to one input.
+raw_csv_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+crs_epsg = 32648            # WGS 84 / UTM zone 48N (consistent with the source "UTM48N" strings)
+
+[sources]
+# Received 2026-10-12 (second delivery). All paths are git-ignored; checksums pin the exact files.
+workbook = "data/raw/Final_Men_Ten_Mg_Hah_KGEO_Digitalized_COMPLETE_Depth_Formulas.xlsx"
+workbook_sha256 = "78a426c61a30cd103b1477aa7b52e67a8cc45f1163e00d5f0d0d938032aaaddc"
+master_sheet = "Study_Range_Stacking"
+qc_sheet = "QC_Digitalization"
+downtown_shp = "data/raw/gis/downtown/downtown.shp"
+downtown_shp_sha256 = "6ab634176e29a9691e8117deb37a5864b63797fb1aa065c48ae9adc9654f76e7"
+ring_shp = "data/raw/gis/ring_5km/Ring_5km.shp"
+ring_shp_sha256 = "70e23e22503b1f401cd9c7845b24a2a6478df3016e57a9ca85b3ea0defc0cfd8"
+dem = "data/raw/gis/dem_downtown"              # ESRI ArcInfo grid (GDAL driver AIG)
+dem_data_sha256 = "9ef9086739ea12cd4a219d6290045d781c07b0ec619af8401be28d59eb492a9f"  # w001001.adf
+# Ground_Elevation_m in the CSV is a bilinear (cell-centre) sample of this DEM; the 3D grid
+# must use the same sampler so training and prediction elevations are consistent.
+dem_sampler = "bilinear"
+
+[depth]
+top_m = 0.0
+bottom_m = 15.0
+cell_m = 0.5
+# D3: minimum fraction of a 0.5 m cell that must be covered by labelled sample intervals of
+# one class (and by none of the other) for the cell to receive that class.
+min_cell_coverage = 0.5
+# D4: sample intervals longer than this are not treated as measured strata (e.g. single
+# 0-20.5 m records); they contribute no labels.
+max_interval_m = 3.0
+# Design revision 2026-10-13 (design report section 10, a deviation from the brief): fill an
+# unsampled gap between two measured cells of the same class when no record of any kind
+# touches it. Filled cells are used for training only; every evaluation uses measured cells.
+fill_gaps = true
+fill_max_gap_m = 3.0              # same limit as max_interval_m
+# Depth bands for depth-specific metrics (brief section 11).
+bands_m = [0.0, 5.0, 10.0, 15.0]
+
+[labels]
+# Binary target from the brief: Clay = 1, Sand = 0. Every other symbol (ML, CL-ML, missing)
+# is excluded (D2); the brief forbids converting ML or CL-ML to Clay automatically.
+clay = ["CL", "CH"]
+sand = ["SC", "SM", "SP"]
+
+[regions]
+# Values found in the Region field of the received file. They equal point-in-polygon
+# membership in downtown.shp / Ring_5km.shp for all 189 boreholes (scripts/02_verify_sources.py).
+downtown = "Downtown"
+buffer_5km = "Downtown_5km"
+excluded = ["Downtown_10km", "Unassigned"]
+
+[seeds]
+global = 20261012
+
+[paths]
+# Borehole-level intermediate files (git-ignored).
+processed = "data/processed"
+folds = "data/folds"
+outputs = "outputs"
+# Optional, git-ignored: BH_Code,exclude_from_training,exclude_from_external,reason
+manual_flags = "data/raw/manual_borehole_flags.csv"
+# The supplied blockCV repository (rvalavi/blockCV, version 4.0-1), unzipped.
+blockcv_source = "data/raw/blockCV-master"
+
+[external]
+# External Downtown boreholes reserved before any modelling (brief section 10; D9).
+# Selection uses coordinates and sampling metadata only, never class values.
+site_linkage_m = 100.0            # single-linkage distance that groups boreholes into sites
+n_zones = 3                       # k-means zones on coordinates, used to spread the selection
+n_generalisation_sites = 5        # whole isolated sites: generalisation to unfamiliar locations
+generalisation_min_isolation_m = 500.0
+n_interpolation_boreholes = 5     # one borehole from a multi-borehole site: interpolation
+interpolation_min_site_size = 2
+min_depth_m = 15.0                # eligibility: borehole reaches the full study depth
+min_uscs_intervals = 10           # eligibility: sampled intervals in 0-15 m with any USCS symbol
+max_coordinate_mismatch_m = 5.0   # eligibility: text coordinate agrees with the UTM fields
+max_record_length_m = 1.0         # eligibility: no contiguous long records (D12)
+
+[blockcv]
+# Outer spatial folds, generated only in R with the original blockCV (brief section 7).
+block_sizes_m = [100, 200, 300]
+primary_block_m = 100             # planned primary; 200 and 300 m are robustness analyses
+k = 5
+hexagon = false                   # square blocks: "100 m" is the side length (D7)
+selection = "random"
+iteration = 300                   # random block-to-fold assignments searched for class balance
+seed = 20261012
+
+[spatial]
+# Spatial autocorrelation analysis in R (brief section 7; design report section 3).
+slice_m = 1.5                     # depth slices aligned with the 1.5 m sampling cycle
+variogram_boundaries_m = [0, 25, 50, 100, 150, 200, 300, 400, 600, 800, 1000, 1500, 2000, 3000]
+subsample_share = 0.8             # site subsampling for the range uncertainty
+subsample_reps = 200
+moran_k = 4
+moran_permutations = 999
+vertical_max_lag_m = 10.0
+knndm_diagnostic = false          # D15: blockCV cv_knndm as an additional diagnostic
+
+[inner_cv]
+# Adequacy check for re-using the four remaining outer folds as inner folds (brief section 9).
+min_boreholes = 8
+min_cells = 100
+min_class_share = 0.20
+
+[experiment]
+scenarios = ["A", "B"]            # A: Downtown only; B: Downtown + 5 km ring
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB", "GP"]   # every model runs on every block size
+# robustness_models = ["RF", "XGB", "GP"]   # optional subset for the non-primary block sizes
+reference_baseline = true         # depth-band prior, reported beside the five models (D6)
+n_jobs = 4                        # threads per model fit
+threshold_grid = [0.05, 0.95, 0.01]  # start, stop, step of the inner-CV decision threshold search
+purge_distances_m = [100.0, 200.0]   # separate spatial-purge analysis on the primary block size
+purge_models = ["RF", "XGB"]
+
+[experiment.n_trials]
+# Optuna TPE trials per model and outer fold (Schratz et al. 2019: gains saturate near 50).
+RF = 50
+XGB = 50
+MLP = 50
+GWRF = 30
+GWXGB = 30
+GP = 1                            # no search: kernel hyperparameters by maximum marginal likelihood
+
+[gw]
+# Geographically weighted RF / XGBoost (Georganos et al. 2021; Grekousis 2025), adapted to
+# binary classification of borehole cells. Neighbourhoods are counted in boreholes.
+min_boreholes = 5
+min_cells_per_class = 20
+max_neighbours = 80               # neighbourhood may grow to this size before falling back
+local_rf_trees = 100
+local_xgb_rounds_max = 300
+
+[gp]
+# Gaussian process classifier (Laplace approximation; Rasmussen & Williams 2006), the ML
+# counterpart of indicator kriging. Anisotropic Matern kernel with separate correlation
+# lengths for Easting, Northing and elevation, fitted by maximum marginal likelihood in each
+# training partition (values below are starting points and bounds, not tuned settings).
+nu = 1.5
+amplitude = 1.0
+amplitude_bounds = [0.01, 10000.0]
+horizontal_length_m = 200.0
+horizontal_bounds_m = [5.0, 20000.0]
+vertical_length_m = 3.0
+vertical_bounds_m = [0.1, 100.0]
+predict_chunk_rows = 10000             # bounds memory when predicting the 3D grid
+
+[grid3d]
+spacing_m = 25.0                  # XY spacing of prediction columns inside the Downtown polygon
+chunk_rows = 500000
+
+[smoke]
+# Software validation run (brief section 13). Never reported as results.
+outer_folds = [1]
+block_sizes_m = [100]
+n_trials = 2
+rf_trees = 50
+mlp_max_iter = 200
+grid_spacing_m = 100.0            # coarser 3D grid for the smoke run
+
+# ---------------------------------------------------------------- Optuna search spaces ----
+# type: int | float | categorical; log = true samples on a log scale.
+[search_space.RF]
+n_estimators = { type = "int", low = 200, high = 800, step = 100 }
+max_depth = { type = "int", low = 3, high = 30 }
+min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+max_samples = { type = "float", low = 0.5, high = 1.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.XGB]
+n_estimators = { type = "int", low = 100, high = 800, step = 50 }
+learning_rate = { type = "float", low = 0.01, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 10 }
+min_child_weight = { type = "float", low = 1.0, high = 30.0, log = true }
+subsample = { type = "float", low = 0.5, high = 1.0 }
+colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+gamma = { type = "float", low = 0.0, high = 5.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.MLP]
+n_layers = { type = "int", low = 1, high = 3 }
+n_units = { type = "int", low = 8, high = 128, log = true }
+activation = { type = "categorical", choices = ["relu", "tanh"] }
+alpha = { type = "float", low = 1e-6, high = 0.1, log = true }
+learning_rate_init = { type = "float", low = 1e-4, high = 1e-2, log = true }
+batch_size = { type = "categorical", choices = [32, 64, 128] }
+max_iter = { type = "int", low = 200, high = 1000, step = 100 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.GWRF]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+max_depth = { type = "int", low = 3, high = 20 }
+min_samples_leaf = { type = "int", low = 1, high = 30, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.GWXGB]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+n_estimators = { type = "int", low = 50, high = 300, step = 50 }
+learning_rate = { type = "float", low = 0.03, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 6 }
+min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
+subsample = { type = "float", low = 0.6, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.GP]
+# empty: the GP has no Optuna search (see [gp])

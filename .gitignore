@@ -1,0 +1,21 @@
+# Raw borehole data and anything that identifies boreholes or their locations stay local:
+# this repository is public. See docs/01_source_review_and_design.md, item M12.
+data/raw/*
+!data/raw/README.md
+outputs/**/restricted/
+
+# Python / Jupyter / R
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.Rproj.user/
+.Rhistory
+.RData
+
+# Borehole-level intermediate files, R fold files, smoke-test outputs, checkpoints and models
+data/processed/
+data/folds/
+outputs/smoke/
+outputs/**/checkpoints/
+outputs/**/models/
+outputs/**/trials/

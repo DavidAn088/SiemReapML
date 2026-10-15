@@ -1,0 +1,21 @@
+# Python environment used for the notebooks (versions tested in the smoke run, Python 3.13).
+numpy==2.5.3
+pandas==3.0.5
+scipy==1.18.1
+scikit-learn==1.9.1
+xgboost==3.4.1
+optuna==5.0.0
+joblib
+matplotlib==3.11.2
+geopandas==1.2.0
+shapely==2.2.0
+pyproj==3.8.0
+pyogrio==0.13.0
+rasterio==1.5.2
+xarray==2026.9.0
+netCDF4==1.7.4
+openpyxl==3.1.5
+jupyterlab
+nbconvert
+ipykernel
+pytest
