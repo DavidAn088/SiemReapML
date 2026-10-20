@@ -71,8 +71,22 @@ one_fold_per_borehole <- function(code, fold) {
   tapply(fold, code, function(f) f[1])
 }
 
+# block sizes: fixed in the configuration, or (auto_block_size) the blockCV autocorrelation
+# range written by R/01_mc_block_size.R
+decision <- NULL
+if (isTRUE(bc$auto_block_size)) {
+  dec_file <- file.path(fdir, "block_size_decision.json")
+  if (!file.exists(dec_file)) stop("Run R/01_mc_block_size.R first (it writes ", dec_file, ").")
+  decision <- jsonlite::fromJSON(dec_file)
+  block_sizes <- unique(c(decision$block_size_m, unlist(bc$extra_block_sizes_m)))
+  cat("Block size from the autocorrelation range:", decision$block_size_m, "m\n")
+} else {
+  block_sizes <- bc$block_sizes_m
+}
+clay_of <- function(d) if ("y_bin" %in% names(d)) d$y_bin else d$y
+
 fold_summary <- list(); dist_summary <- list(); W_rows <- list(); offsets <- list()
-for (b in bc$block_sizes_m) {
+for (b in block_sizes) {
   cat("Block size", b, "m\n")
   sb <- run_cv_spatial(x, bc$k, b, bc$seed)
   bh_fold <- one_fold_per_borehole(x$BH_Code, sb$folds_ids)
@@ -90,7 +104,8 @@ for (b in bc$block_sizes_m) {
     dB <- nn_dist(te, rbind(tr[, 1:3], bh_ring))
     fc <- dt[dt$fold == k, ]
     fold_summary[[length(fold_summary) + 1]] <- data.frame(
-      block_size_m = b, fold = k, test_boreholes = nrow(te), test_cells = nrow(fc), test_clay_share = mean(fc$y),
+      block_size_m = b, fold = k, test_boreholes = nrow(te), test_cells = nrow(fc), test_clay_share = mean(clay_of(fc)),
+      test_classes = length(unique(fc$cls)),
       train_boreholes_A = nrow(tr), train_boreholes_B = nrow(tr) + nrow(bh_ring))
     for (sc in c("A", "B")) {
       d <- if (sc == "A") dA else dB
@@ -148,6 +163,17 @@ fs <- do.call(rbind, fold_summary); ds <- do.call(rbind, dist_summary); W <- do.
 write.csv(fs, file.path(agg, "fold_summary.csv"), row.names = FALSE)
 write.csv(ds, file.path(agg, "test_to_train_distance_by_fold.csv"), row.names = FALSE)
 if (!is.null(W)) write.csv(W, file.path(agg, "wasserstein_vs_prediction_domain.csv"), row.names = FALSE)
+
+if (!is.null(decision)) {  # auto_block_size: the decision was made in R/01_mc_block_size.R
+  rule <- list(auto_block_size = TRUE, block_size_m = decision$block_size_m, method = decision$method,
+               block_sizes_run = block_sizes, block_offsets = offsets)
+  if (!is.null(W)) rule$W_cv <- setNames(as.list(W$CV), W$block_size_m)
+  jsonlite::write_json(rule, file.path(agg, "block_size_rule.json"), auto_unbox = TRUE, pretty = TRUE)
+  write_session_info(agg, "blockcv_folds")
+  print(fs); print(W); print(rule)
+  cat("Fold files written to", fdir, "\n")
+  quit(save = "no")
+}
 
 # block-size rule (design report section 4.3), recorded for review before any model is fitted
 sac_file <- file.path(out_dir(root, st, "04_spatial_autocorrelation", "aggregate"), "spatial_autocorrelation_summary.json")

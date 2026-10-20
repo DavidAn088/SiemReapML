@@ -611,3 +611,64 @@ Two unit tests cover the rule and the measured-only scoring. Because every repor
 ### 10.4 Cost
 
 The training sets grow by roughly 40–50 %, which slows every fit. The GP grows fastest, because its cost rises with the cube of the training size. The whole experiment (50 runs × 5 outer folds) is estimated at roughly 1.5–2.5 days on one 4-core PC. The MLP in Scenario B is the largest and least certain part. Notebook 03 is checkpointed. It can run the 100 m primary block first (`RUN_BLOCKS = [100]`), or be split across two computers by block size.
+
+## 11. A second target: 5 soil classes from USCS and SPT-N (2026-10-20)
+
+This is a separate experiment next to the binary Clay/Sand model, which is unchanged. It follows the geology-guided framework of Khamjan et al. (2026, *Engineering Geology* 371:108880), where a soil class combines the USCS group with strength. The difference is that every model here is validated with spatial block cross-validation instead of a random hold-out. Configuration: `config/project_5class.toml`. Notebooks: `notebooks/5class/11–15`. Outputs: `data/processed_5class/`, `data/folds_5class/` and `outputs_5class/`.
+
+### 11.1 Target
+
+* **Sample.** A record with a USCS symbol of either group and an SPT-N value, starting above 20 m, no longer than 3 m. In Downtown, 1,385 records in 112 boreholes qualify; 1,278 of them are in the development set.
+* **Depth.** The model goes to 20 m, since the median Downtown borehole depth is 19.95 m. Gap filling is not used, because SPT-N is a point test.
+* **Groups.** Clay = CL, CH; Sand = SC, SM, SP. SM (37 records in 12 boreholes), CH (23 in 6) and SP (2 in 1) are too rare in Downtown to be learnt as classes of their own under spatial CV.
+* **Fine classes.** These use Terzaghi & Peck consistency and density ranges:
+  * Clay: Soft (N ≤ 4), Medium stiff (5–8), Stiff (9–15), Very stiff to hard (> 15).
+  * Sand: Loose (≤ 10), Medium dense (11–30), Dense (> 30).
+* **Merge rule, fixed before modelling on development counts only.** While the smallest class of a group has fewer than 100 samples, it is merged with its smaller neighbour. Soft (89) joins Medium stiff, and Dense (35) joins Medium dense. Final development counts:
+
+| Class | Samples | Boreholes |
+|---|---|---|
+| Soft to medium stiff clay | 256 | 79 |
+| Stiff clay | 159 | 66 |
+| Very stiff to hard clay | 105 | 44 |
+| Loose sand | 284 | 84 |
+| Medium dense to dense sand | 474 | 95 |
+
+### 11.2 Block size from the autocorrelation range
+
+The block size is not set by hand. `R/01_mc_block_size.R` computes it from the data:
+
+1. **Per depth slice.** Within each 1.5 m depth slice, every Downtown development borehole gives the share of its samples in each class: one indicator per class.
+2. **Ranges.** `blockCV::cv_spatial_autocor` fits each indicator's variogram (automap) and returns its range.
+3. **Block size.** The block size is the median of all these ranges. That is how `cv_spatial_autocor` combines several layers (Valavi et al. 2019).
+4. **Skipped indicators.** A class indicator is not used in a slice if fewer than 10 boreholes of that slice have the class, because a variogram of a handful of presences has no defined range. Slices with fewer than 30 boreholes are also skipped.
+
+The value is written to `data/folds_5class/block_size_decision.json`. `R/02_blockcv_folds.R` builds the k = 5 folds from it: square blocks, random block-to-fold assignment balanced on the 5 classes, 300 iterations, seed 20261012.
+
+An earlier statement needs correcting. For the binary indicator, blockCV's own suggested size (the median of its per-slice range *parameters*: 68–224 m) is **about 106 m**. The "r̃ ≈ 99 m" of §3–§4 is a different quantity: the median of gstat practical ranges with unresolved slices entered as 25 m. The 186 m quoted in discussion was the median of practical ranges derived from blockCV's fits, not blockCV's rule.
+
+### 11.3 Models, tuning and selection
+
+* **Models.** The same five (RF, XGB, MLP, GWRF, GWXGB) with the same search spaces and budgets, plus the depth-slice class shares as a reference (`DEPTH_PRIOR`). Training uses the Downtown development boreholes only (scenario A).
+* **Prediction and tuning.** The prediction is the most probable class, with no threshold. Optuna maximises the pooled inner out-of-fold Macro-F1 over the 5 classes.
+* **Missing classes.** Every model returns probabilities for all 5 classes, also when a training set lacks one.
+* **GW models.** A neighbourhood needs two classes with at least 10 samples. A class absent locally gets probability 0 from the local model and is supplied by the global model through the blend.
+* **Inner folds.** These are the remaining outer folds when every class occurs at least 5 times in each, and R's fallback folds otherwise.
+* **Selection, pre-declared:**
+  1. Eligible if the mean recall of every class is at least 1/K.
+  2. Rank by mean outer-fold Macro-F1.
+  3. Among eligible models within 1 SE of the best, take the lowest fold SD, then the lowest log loss.
+* **Reported metrics:**
+  * accuracy, balanced accuracy, Macro-F1 and weighted F1;
+  * Cohen's kappa and MCC;
+  * one-vs-rest ROC-AUC and per-class PR-AUC against the class-prevalence baseline;
+  * multiclass Brier score and log loss;
+  * per-class recall and F1, and the confusion matrix (% recall);
+  * the predictions merged back to Clay/Sand;
+  * all of the above by depth band and by distance to the nearest training borehole, and against chance levels.
+* **External holdout.** The 11 locked boreholes are evaluated once, with the depth-only reference scored on the same samples.
+* **3D grid.** 25 m × 1 m to 20 m, with class probabilities, normalised entropy, reliability zones (≤ 100 m, ≤ 300 m, > 300 m from a borehole) and extrapolation flags.
+
+### 11.4 What to expect
+
+Five classes are a harder task than two. Chance Macro-F1 is about 0.2 instead of 0.5, and every Clay/Sand error remains. Scores will therefore be lower than the binary ones and are not comparable with them. Consistency and density follow depth closely, so the depth-only reference is the comparison that shows what location adds. No result of this experiment exists yet.

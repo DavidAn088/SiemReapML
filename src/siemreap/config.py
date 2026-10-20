@@ -23,11 +23,24 @@ def find_root(start: Path | None = None) -> Path:
     raise FileNotFoundError("config/project.toml not found above " + str(p))
 
 
+def config_name() -> str:
+    """Configuration file in config/: project.toml (binary Clay/Sand) unless the
+    SIEMREAP_CONFIG environment variable names another, e.g. project_5class.toml."""
+    return os.environ.get("SIEMREAP_CONFIG", "project.toml").strip() or "project.toml"
+
+
 def load_config(root: Path | None = None) -> dict:
     root = root or find_root()
-    cfg = tomllib.loads((root / "config" / "project.toml").read_text(encoding="utf-8"))
+    name = config_name()
+    cfg = tomllib.loads((root / "config" / name).read_text(encoding="utf-8"))
     cfg["_root"] = root
+    cfg["_config_name"] = name
     return cfg
+
+
+def target_kind(cfg: dict) -> str:
+    """'binary' (Clay/Sand cells, the default) or 'multiclass' (USCS x SPT-N classes)."""
+    return cfg.get("target", {}).get("kind", "binary")
 
 
 def run_mode() -> str:

@@ -58,7 +58,7 @@ def borehole_table(df: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     """One row per borehole with location, region and sampling metadata (no class values)."""
     from pyproj import Transformer
 
-    bottom = cfg["depth"]["bottom_m"]
+    bottom = cfg["external"].get("eligibility_bottom_m", cfg["depth"]["bottom_m"])
     g = df.groupby("BH_Code", sort=True)
     bh = g.agg(Project_No=("Project_No", "first"), Region=("Region", "first"),
                E=("UTM_Easting_m", "first"), N=("UTM_Northing_m", "first"),
@@ -198,6 +198,125 @@ def fill_rule_check(cells: pd.DataFrame) -> dict:
 def measured(cells: pd.DataFrame) -> pd.DataFrame:
     """The measured cells of a table (all of them when gap filling is off)."""
     return cells[cells.measured == 1] if "measured" in cells.columns else cells
+
+
+# ------------------------------------------------- multiclass (USCS x SPT-N) ----
+
+def fine_classes(cfg: dict) -> list[dict]:
+    """The fine USCS x SPT-N classes of [target], in order: clay classes by increasing
+    SPT-N, then sand classes. Each has a group, a name and an SPT-N interval (lo, hi]."""
+    t, out = cfg["target"], []
+    for group in ("clay", "sand"):
+        names, upper = t[f"{group}_names"], list(t[f"{group}_n_upper"])
+        if len(names) != len(upper) + 1:
+            raise ValueError(f"[target] {group}_names needs one name more than {group}_n_upper")
+        bounds = [-np.inf, *upper, np.inf]
+        for i, name in enumerate(names):
+            out.append({"group": group, "name": name, "lo": bounds[i], "hi": bounds[i + 1]})
+    return out
+
+
+def fine_class_of(uscs: pd.Series, spt: pd.Series, cfg: dict) -> pd.Series:
+    """Index of the fine class for each record (NaN without a usable USCS symbol or SPT-N)."""
+    t = cfg["target"]
+    out = pd.Series(np.nan, index=uscs.index)
+    for i, c in enumerate(fine_classes(cfg)):
+        m = uscs.isin(t[c["group"]]) & (spt > c["lo"]) & (spt <= c["hi"])
+        out[m] = i
+    return out
+
+
+def merge_classes(counts: pd.Series, cfg: dict) -> dict:
+    """Merge rule fixed before modelling (counts only): within each group, while the smallest
+    class has fewer than `min_class_records` records, merge it with its smaller neighbour in
+    SPT-N order. Returns the fine-to-final mapping and the final class names."""
+    fine = fine_classes(cfg)
+    minimum = cfg["target"]["min_class_records"]
+    final, mapping = [], {}
+    for group in ("clay", "sand"):
+        idx = [i for i, c in enumerate(fine) if c["group"] == group]
+        runs = [[i] for i in idx]                      # consecutive fine classes per final class
+        size = lambda r: int(sum(counts.get(i, 0) for i in r))
+        while len(runs) > 1 and min(size(r) for r in runs) < minimum:
+            j = min(range(len(runs)), key=lambda j: (size(runs[j]), j))
+            nb = [n for n in (j - 1, j + 1) if 0 <= n < len(runs)]
+            n = min(nb, key=lambda n: (size(runs[n]), n))
+            a, b = sorted((j, n))
+            runs[a:b + 1] = [runs[a] + runs[b]]
+        for r in runs:
+            first, last = fine[r[0]]["name"], fine[r[-1]]["name"]
+            name = f"{first} {group}" if len(r) == 1 else f"{first} to {last[0].lower() + last[1:]} {group}"
+            for i in r:
+                mapping[i] = len(final)
+            final.append({"name": name, "group": group, "fine": [fine[i]["name"] for i in r],
+                          "spt_n_range": [None if not np.isfinite(v) else float(v) for v in (fine[r[0]]["lo"], fine[r[-1]]["hi"])],
+                          "records": size(r)})
+    return {"mapping": mapping, "classes": final}
+
+
+def samples(df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
+    """One row per sampled interval with a USCS symbol of either group and an SPT-N value,
+    starting above `bottom_m` and no longer than `max_interval_m`. Columns follow the binary
+    cell table (BH_Code, cell, depth_top_m, the three predictors, measured = 1) so folds,
+    distances and the nested CV treat both targets alike. `fine` holds the fine class; `y`
+    is added by `apply_classes` once the merge rule has been applied."""
+    dc = cfg["depth"]
+    length = df.Depth_To_m - df.Depth_From_m
+    fine = fine_class_of(df.USCS, pd.to_numeric(df.SPT_N, errors="coerce"), cfg)
+    keep = fine.notna() & (df.Depth_From_m >= dc["top_m"]) & (df.Depth_From_m < dc["bottom_m"]) & (length <= dc["max_interval_m"])
+    s = df[keep].copy()
+    s["fine"] = fine[keep].astype(int)
+    s = s.sort_values(["BH_Code", "Depth_From_m", "csv_line"])
+    out = pd.DataFrame({
+        "BH_Code": s.BH_Code.values, "cell": s.groupby("BH_Code").cumcount().values,
+        "depth_top_m": s.Depth_From_m.values, "depth_mid_m": ((s.Depth_From_m + s.Depth_To_m) / 2).values,
+        "UTM_Easting_m": s.UTM_Easting_m.values, "UTM_Northing_m": s.UTM_Northing_m.values,
+        "Ground_Elevation_m": s.Ground_Elevation_m.values,
+        "Top_Elevation_m": (s.Ground_Elevation_m - s.Depth_From_m).values, "Region": s.Region.values,
+        "USCS": s.USCS.values, "SPT_N": pd.to_numeric(s.SPT_N, errors="coerce").values, "fine": s.fine.values,
+        "y_bin": s.USCS.isin(cfg["target"]["clay"]).astype(int).values,
+        "csv_lines": s.csv_line.astype(str).values, "sample_types": s.Sample_Type.fillna("?").astype(str).values,
+        "measured": 1})
+    t = cfg["target"]
+    with_uscs = df.USCS.isin(t["clay"] + t["sand"]) & (df.Depth_From_m < dc["bottom_m"])
+    info = {"samples": int(len(out)), "boreholes": int(out.BH_Code.nunique()),
+            "records_with_uscs_in_map": int(with_uscs.sum()),
+            "of_which_without_spt_n": int((with_uscs & pd.to_numeric(df.SPT_N, errors="coerce").isna()).sum()),
+            "longer_than_max_interval": int((with_uscs & fine.notna() & (length > dc["max_interval_m"])).sum()),
+            "same_borehole_same_depth_duplicates": int(out.duplicated(["BH_Code", "depth_top_m"]).sum())}
+    return out, info
+
+
+def apply_classes(cells: pd.DataFrame, merge: dict) -> pd.DataFrame:
+    """Final class index `y` and `class_name` from the fine class and the merge mapping."""
+    m = {int(k): int(v) for k, v in merge["mapping"].items()}
+    y = cells.fine.map(m).astype(int)
+    return cells.assign(y=y, class_name=[merge["classes"][i]["name"] for i in y])
+
+
+def class_info(cfg: dict) -> dict:
+    """The final classes written by the preprocessing notebook (processed_dir/classes.json)."""
+    from .config import processed_dir
+
+    p = processed_dir(cfg) / "classes.json"
+    if not p.exists():
+        raise FileNotFoundError(f"{p} not found. Run the preprocessing notebook first.")
+    return json.loads(p.read_text())
+
+
+def n_classes(cfg: dict) -> int:
+    from .config import target_kind
+
+    return 2 if target_kind(cfg) == "binary" else len(class_info(cfg)["classes"])
+
+
+def clay_classes(cfg: dict) -> list[int]:
+    """Class indices that belong to the Clay group (binary: [1])."""
+    from .config import target_kind
+
+    if target_kind(cfg) == "binary":
+        return [1]
+    return [i for i, c in enumerate(class_info(cfg)["classes"]) if c["group"] == "clay"]
 
 
 # --------------------------------------------------------------- manual flags ----

@@ -191,3 +191,81 @@ def test_filled_cells_train_but_are_never_scored(cfg):
     expect = c[c.BH_Code.isin(test_bh) & (c.measured == 1)]
     assert len(res["predictions"]) == len(expect)
     assert res["info"]["n_train_filled_cells"] > 0
+
+
+# ------------------------------------------------------------- 5-class target ----
+
+@pytest.fixture(scope="module")
+def cfg5():
+    import os
+    old = os.environ.get("SIEMREAP_CONFIG")
+    os.environ["SIEMREAP_CONFIG"] = "project_5class.toml"
+    try:
+        return config.load_config(ROOT)
+    finally:
+        if old is None:
+            os.environ.pop("SIEMREAP_CONFIG")
+        else:
+            os.environ["SIEMREAP_CONFIG"] = old
+
+
+def test_fine_classes_follow_uscs_group_and_spt_n(cfg5):
+    uscs = pd.Series(["CL", "CH", "CL", "CL", "SC", "SM", "SC", "SP", "ML", "CL"])
+    spt = pd.Series([3, 8, 9, 40, 10, 11, 31, 50, 5, np.nan])
+    got = data.fine_class_of(uscs, spt, cfg5)
+    # clay: Soft <=4, Medium stiff <=8, Stiff <=15, Very stiff to hard; sand: Loose <=10, Medium dense <=30, Dense
+    assert got.tolist()[:8] == [0, 1, 2, 3, 4, 5, 6, 6]
+    assert np.isnan(got.iloc[8]) and np.isnan(got.iloc[9])  # ML is outside the map; missing SPT-N
+
+
+def test_merge_rule_joins_small_classes_with_their_smaller_neighbour(cfg5):
+    counts = pd.Series({0: 89, 1: 167, 2: 159, 3: 105, 4: 284, 5: 439, 6: 35})
+    m = data.merge_classes(counts, cfg5)
+    names = [c["name"] for c in m["classes"]]
+    assert names == ["Soft to medium stiff clay", "Stiff clay", "Very stiff to hard clay", "Loose sand",
+                     "Medium dense to dense sand"]
+    assert [c["records"] for c in m["classes"]] == [256, 159, 105, 284, 474]
+    assert m["mapping"] == {0: 0, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 4}
+    # nothing is merged when every class is large enough
+    assert len(data.merge_classes(pd.Series({i: 500 for i in range(7)}), cfg5)["classes"]) == 7
+
+
+@pytest.mark.parametrize("name", ["RF", "XGB", "MLP"])
+def test_multiclass_models_return_all_classes_even_if_one_is_missing(cfg, name):
+    rng = np.random.default_rng(0)
+    X = rng.uniform(0, 100, (200, 3))
+    y = rng.choice([0, 1, 3], 200)            # class 2 absent from training
+    p = {"RF": {"n_estimators": 30, "max_depth": 4, "min_samples_leaf": 2, "max_features": 2, "max_samples": 0.8,
+                "class_weight": "balanced"},
+         "XGB": {"n_estimators": 30, "learning_rate": 0.1, "max_depth": 3, "min_child_weight": 1.0, "subsample": 1.0,
+                 "colsample_bynode": 1.0, "reg_lambda": 1.0, "gamma": 0.0, "class_weight": "balanced"},
+         "MLP": {"n_layers": 1, "n_units": 8, "activation": "relu", "alpha": 1e-4, "learning_rate_init": 1e-3,
+                 "batch_size": 32, "max_iter": 50, "class_weight": "none"}}[name]
+    P = build(name, p, cfg, seed=1, n_classes=4).fit(X, y).predict_proba(X[:10])
+    assert P.shape == (10, 4)
+    assert np.allclose(P.sum(axis=1), 1) and np.all(P[:, 2] == 0)
+
+
+def test_gw_multiclass_probabilities():
+    rng = np.random.default_rng(1)
+    sites = rng.uniform(0, 1000, (30, 2))
+    X = np.vstack([np.column_stack([np.repeat(s[None], 12, 0), rng.uniform(0, 20, 12)]) for s in sites])
+    y = (X[:, 2] // 5).astype(int) % 5
+    m = GWClassifier(base="xgb", k_neighbours=8, learner_params={"max_depth": 2}, local_n_estimators=20,
+                     global_n_estimators=20, min_cells_per_class=5, n_classes=5).fit(X, y)
+    P = m.predict_proba(X[:40])
+    assert P.shape == (40, 5) and np.allclose(P.sum(axis=1), 1)
+    assert m.fallback_rate_ < 1
+
+
+def test_multiclass_metrics_and_depth_prior():
+    from siemreap.models import DepthPrior
+
+    y = np.array([0, 0, 1, 1, 2, 2, 3, 4])
+    P = np.eye(5)[y] * 0.8 + 0.04
+    r = M.metric_row_mc(y, P, P.argmax(axis=1), y_bin=(y < 3).astype(int), yhat_bin=(y < 3).astype(int))
+    assert r["accuracy"] == 1 and r["macro_f1"] == 1 and r["kappa"] == 1 and r["bin_accuracy"] == 1
+    dp = DepthPrior(slice_m=1.5, n_classes=5).fit(np.array([0.0, 0.5, 2.0, 2.5]), np.array([0, 0, 3, 4]))
+    p = dp.predict_proba(np.array([0.2, 2.2, 30.0]))
+    assert np.allclose(p[0], [1, 0, 0, 0, 0]) and np.allclose(p[1], [0, 0, 0, 0.5, 0.5])
+    assert np.allclose(p[2], [0.5, 0, 0, 0.25, 0.25])  # unseen slice -> overall shares

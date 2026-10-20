@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
-from .gw import GWClassifier, _balanced
+from .gw import GWClassifier, _balanced, expand_proba
 
 
 def suggest(trial, space: dict) -> dict:
@@ -29,8 +29,8 @@ def suggest(trial, space: dict) -> dict:
 
 
 class RFModel(ClassifierMixin, BaseEstimator):
-    def __init__(self, params=None, seed=0, n_jobs=1):
-        self.params, self.seed, self.n_jobs = params, seed, n_jobs
+    def __init__(self, params=None, seed=0, n_jobs=1, n_classes=2):
+        self.params, self.seed, self.n_jobs, self.n_classes = params, seed, n_jobs, n_classes
 
     def fit(self, X, y):
         from sklearn.ensemble import RandomForestClassifier
@@ -46,26 +46,30 @@ class RFModel(ClassifierMixin, BaseEstimator):
         # single-threaded prediction: multi-threaded tree averaging sums in arrival order and
         # changes the last floating-point bit between runs
         self.model_.n_jobs = 1
-        return self.model_.predict_proba(X)
+        return expand_proba(self.model_.predict_proba(X), self.model_.classes_, self.n_classes)
 
 
 class XGBModel(ClassifierMixin, BaseEstimator):
-    def __init__(self, params=None, seed=0, n_jobs=1):
-        self.params, self.seed, self.n_jobs = params, seed, n_jobs
+    def __init__(self, params=None, seed=0, n_jobs=1, n_classes=2):
+        self.params, self.seed, self.n_jobs, self.n_classes = params, seed, n_jobs, n_classes
 
     def fit(self, X, y):
         from xgboost import XGBClassifier
 
         p = dict(self.params)
         cw = p.pop("class_weight", "none")
-        w = _balanced(np.asarray(y)) if cw == "balanced" else None
+        y = np.asarray(y)
+        w = _balanced(y) if cw == "balanced" else None
+        # XGBoost needs labels 0..m-1: encode the classes present in this training set
+        self.present_, yy = np.unique(y, return_inverse=True)
+        metric = "logloss" if len(self.present_) <= 2 else "mlogloss"
         self.model_ = XGBClassifier(**p, tree_method="hist", random_state=self.seed, n_jobs=self.n_jobs,
-                                    eval_metric="logloss").fit(X, y, sample_weight=w)
-        self.classes_ = np.array([0, 1])
+                                    eval_metric=metric).fit(X, yy, sample_weight=w)
+        self.classes_ = np.arange(self.n_classes)
         return self
 
     def predict_proba(self, X):
-        return self.model_.predict_proba(X)
+        return expand_proba(self.model_.predict_proba(X), self.present_, self.n_classes)
 
 
 class MLPModel(ClassifierMixin, BaseEstimator):
@@ -73,8 +77,8 @@ class MLPModel(ClassifierMixin, BaseEstimator):
     sklearn's internal random-row early-stopping split, which would mix cells of one
     borehole between fitting and validation."""
 
-    def __init__(self, params=None, seed=0, n_jobs=1):
-        self.params, self.seed, self.n_jobs = params, seed, n_jobs
+    def __init__(self, params=None, seed=0, n_jobs=1, n_classes=2):
+        self.params, self.seed, self.n_jobs, self.n_classes = params, seed, n_jobs, n_classes
 
     def fit(self, X, y):
         from sklearn.neural_network import MLPClassifier
@@ -91,7 +95,7 @@ class MLPModel(ClassifierMixin, BaseEstimator):
         return self
 
     def predict_proba(self, X):
-        return self.model_.predict_proba(self.scaler_.transform(X))
+        return expand_proba(self.model_.predict_proba(self.scaler_.transform(X)), self.model_.classes_, self.n_classes)
 
 
 class GPModel(ClassifierMixin, BaseEstimator):
@@ -127,8 +131,9 @@ class GPModel(ClassifierMixin, BaseEstimator):
         return np.vstack([self.model_.predict_proba(X[i:i + n]) for i in range(0, len(X), n)])
 
 
-def build(name: str, params: dict, cfg: dict, seed: int, smoke: bool = False):
-    """Instantiate a model family with a parameter set from its search space."""
+def build(name: str, params: dict, cfg: dict, seed: int, smoke: bool = False, n_classes: int = 2):
+    """Instantiate a model family with a parameter set from its search space. Every model
+    returns probabilities for all `n_classes` classes, also when a training set lacks one."""
     n_jobs = cfg["experiment"]["n_jobs"]
     p = dict(params)
     if smoke:  # reduced sizes for the software validation run only
@@ -138,11 +143,11 @@ def build(name: str, params: dict, cfg: dict, seed: int, smoke: bool = False):
         if "max_iter" in p:
             p["max_iter"] = min(p["max_iter"], sm["mlp_max_iter"])
     if name == "RF":
-        return RFModel(p, seed, n_jobs)
+        return RFModel(p, seed, n_jobs, n_classes)
     if name == "XGB":
-        return XGBModel(p, seed, n_jobs)
+        return XGBModel(p, seed, n_jobs, n_classes)
     if name == "MLP":
-        return MLPModel(p, seed, n_jobs)
+        return MLPModel(p, seed, n_jobs, n_classes)
     if name == "GP":
         return GPModel(p, seed, n_jobs, cfg["gp"])
     if name in ("GWRF", "GWXGB"):
@@ -157,26 +162,34 @@ def build(name: str, params: dict, cfg: dict, seed: int, smoke: bool = False):
         return GWClassifier(base=base, k_neighbours=k, alpha=alpha, kernel=kernel, learner_params=p,
                             class_weight=cw, local_n_estimators=n_local, global_n_estimators=n_global,
                             min_boreholes=g["min_boreholes"], min_cells_per_class=g["min_cells_per_class"],
-                            max_neighbours=g["max_neighbours"], random_state=seed, n_jobs=n_jobs)
+                            max_neighbours=g["max_neighbours"], random_state=seed, n_jobs=n_jobs, n_classes=n_classes)
     raise ValueError(f"unknown model {name!r}")
 
 
 class DepthPrior(ClassifierMixin, BaseEstimator):
-    """Reference baseline (not one of the five families): P(Clay) = training clay share of
-    the cell's depth slice. Uses depth below ground, which is not a model predictor, and no
-    horizontal information; it shows how much skill comes from location."""
+    """Reference baseline (not one of the five families): class probabilities = training class
+    shares of the sample's depth slice (binary: the clay share). Uses depth below ground, which
+    is not a model predictor, and no horizontal information; it shows how much skill comes from
+    location."""
 
-    def __init__(self, slice_m=1.5, bottom_m=15.0):
-        self.slice_m, self.bottom_m = slice_m, bottom_m
+    def __init__(self, slice_m=1.5, bottom_m=15.0, n_classes=2):
+        self.slice_m, self.bottom_m, self.n_classes = slice_m, bottom_m, n_classes
 
     def fit(self, depth_top, y):
         s = np.floor(np.asarray(depth_top) / self.slice_m).astype(int)
         y = np.asarray(y)
-        self.overall_ = float(y.mean())
-        self.share_ = {int(k): float(y[s == k].mean()) for k in np.unique(s)}
+        if self.n_classes == 2:
+            self.overall_ = float(y.mean())
+            self.share_ = {int(k): float(y[s == k].mean()) for k in np.unique(s)}
+            return self
+        K = self.n_classes
+        self.overall_ = np.bincount(y, minlength=K) / len(y)
+        self.share_ = {int(k): np.bincount(y[s == k], minlength=K) / (s == k).sum() for k in np.unique(s)}
         return self
 
     def predict_proba(self, depth_top):
         s = np.floor(np.asarray(depth_top) / self.slice_m).astype(int)
-        p = np.array([self.share_.get(int(k), self.overall_) for k in s])
-        return np.column_stack([1 - p, p])
+        if self.n_classes == 2:
+            p = np.array([self.share_.get(int(k), self.overall_) for k in s])
+            return np.column_stack([1 - p, p])
+        return np.vstack([self.share_.get(int(k), self.overall_) for k in s]) if len(s) else np.zeros((0, self.n_classes))

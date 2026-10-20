@@ -35,9 +35,9 @@ import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
 
 from . import folds as F
-from .config import seed_for
-from .data import FEATURES, measured
-from .metrics import best_threshold, threshold_grid
+from .config import seed_for, target_kind
+from .data import FEATURES, class_info, clay_classes, measured, n_classes
+from .metrics import best_threshold, multiclass_macro_f1, threshold_grid
 from .models import DepthPrior, build, suggest
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -60,15 +60,39 @@ class RunSpec:
         return f"{self.scenario}_{self.block_m}m_p{int(self.purge_m)}_{self.model}"
 
 
-def _fit_predict(name, params, cfg, seed, smoke, Xtr, ytr, Xte, dtr=None, dte=None):
+def _fit_predict(name, params, cfg, seed, smoke, Xtr, ytr, Xte, dtr=None, dte=None, K=2):
+    """Fit and predict. Binary: returns P(Clay) as a vector; multiclass: the n x K matrix."""
     if name == BASELINE:
-        m = DepthPrior(bottom_m=cfg["depth"]["bottom_m"]).fit(dtr, ytr)
-        return m, m.predict_proba(dte)[:, 1]
-    m = build(name, params, cfg, seed, smoke)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", ConvergenceWarning)
-        m.fit(Xtr, ytr)
-    return m, m.predict_proba(Xte)[:, 1]
+        m = DepthPrior(bottom_m=cfg["depth"]["bottom_m"], n_classes=K).fit(dtr, ytr)
+        P = m.predict_proba(dte)
+    else:
+        m = build(name, params, cfg, seed, smoke, n_classes=K)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            m.fit(Xtr, ytr)
+        P = m.predict_proba(Xte)
+    return m, (P[:, 1] if K == 2 else P)
+
+
+def _score(y, P, K, grid):
+    """(threshold, Macro-F1): binary picks the threshold on P(Clay) that maximises Macro-F1;
+    multiclass predicts the most probable class (no threshold)."""
+    if K == 2:
+        return best_threshold(y, P, grid)
+    return np.nan, multiclass_macro_f1(y, P, K)
+
+
+def _prediction_table(test, P, thr, K, cfg):
+    cols = ["BH_Code", "cell", "depth_top_m", "UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m", "y"]
+    if K == 2:
+        pred = test[cols].copy()
+        return pred.assign(p_clay=P, threshold=thr, y_pred=(P >= thr).astype(int))
+    clay = clay_classes(cfg)
+    pred = test[cols + ["y_bin"]].copy()
+    yp = P.argmax(axis=1)
+    pred = pred.assign(**{f"p_{c}": P[:, c] for c in range(K)})
+    return pred.assign(y_pred=yp, p_clay=P[:, clay].sum(axis=1), y_pred_bin=np.isin(yp, clay).astype(int),
+                       threshold=np.nan)
 
 
 def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cfg: dict, mode: str,
@@ -80,17 +104,18 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
     Xtr, ytr, dtr = train[FEATURES].values, train.y.values, train.depth_top_m.values
     meas = _measured_mask(train)
     grid = threshold_grid(cfg)
+    K = n_classes(cfg)
     seed = seed_for(cfg, spec.tag, k)
     inner_ids = sorted(set(groups[groups > 0]))
     t0 = time.time()
 
     def inner_oof(params):
-        oof = np.full(len(train), np.nan)
+        oof = np.full(len(train) if K == 2 else (len(train), K), np.nan)
         for g in inner_ids:
             va = groups == g
             ev = va & meas  # fit on all cells outside the group, score its measured cells
             _, oof[ev] = _fit_predict(spec.model, params, cfg, seed, smoke, Xtr[~va], ytr[~va], Xtr[ev],
-                                      dtr[~va], dtr[ev])
+                                      dtr[~va], dtr[ev], K)
         mask = np.isin(groups, inner_ids) & meas
         return oof, mask
 
@@ -98,7 +123,7 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
     if spec.model == BASELINE or not space:  # depth-only reference; GP (kernel fitted by marginal likelihood)
         params = {}
         oof, mask = inner_oof(params)
-        thr, inner_f1 = best_threshold(ytr[mask], oof[mask], grid)
+        thr, inner_f1 = _score(ytr[mask], oof[mask], K, grid)
         trials = pd.DataFrame([{"number": 0, "value": inner_f1, "user_attrs_threshold": thr}])
     else:
         n_trials = n_trials or (cfg["smoke"]["n_trials"] if smoke else cfg["experiment"]["n_trials"][spec.model])
@@ -106,9 +131,9 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
         def objective(trial):
             p = suggest(trial, space)
             oof, mask = inner_oof(p)
-            t, f = best_threshold(ytr[mask], oof[mask], grid)
+            t, f = _score(ytr[mask], oof[mask], K, grid)
             trial.set_user_attr("threshold", t)
-            per = [best_threshold(ytr[(groups == g) & meas], oof[(groups == g) & meas], [t])[1] for g in inner_ids]
+            per = [_score(ytr[(groups == g) & meas], oof[(groups == g) & meas], K, [t])[1] for g in inner_ids]
             trial.set_user_attr("inner_fold_macro_f1", [round(x, 4) for x in per])
             return f
 
@@ -119,11 +144,10 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
         trials = study.trials_dataframe(attrs=("number", "value", "params", "user_attrs", "state", "duration"))
 
     model, p_test = _fit_predict(spec.model, params, cfg, seed, smoke, Xtr, ytr, test[FEATURES].values,
-                                 dtr, test.depth_top_m.values)
+                                 dtr, test.depth_top_m.values, K)
     dist = F.test_train_distances(train, test)
-    pred = test[["BH_Code", "cell", "depth_top_m", "UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m", "y"]].copy()
-    pred = pred.assign(p_clay=p_test, threshold=thr, y_pred=(p_test >= thr).astype(int),
-                       dist_nearest_train_m=pred.BH_Code.map(dist).values, outer_fold=k, **asdict(spec))
+    pred = _prediction_table(test, p_test, thr, K, cfg)
+    pred = pred.assign(dist_nearest_train_m=pred.BH_Code.map(dist).values, outer_fold=k, **asdict(spec))
     info = {**asdict(spec), "outer_fold": k, "mode": mode, "inner_source": source,
             "inner_adequacy": adq.to_dict("records"), "n_train_boreholes": int(train.BH_Code.nunique()),
             "n_train_filled_cells": int((~meas).sum()),
@@ -151,6 +175,9 @@ def fingerprint(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, cfg: di
         parts["measured"] = pd.util.hash_pandas_object(cells[["BH_Code", "cell", "measured"]], index=False).sum().item()
     if spec.model == "GP":  # added per model, so the fingerprints of the other models are unchanged
         parts["gp"] = cfg["gp"]
+    if target_kind(cfg) != "binary":  # added for the multiclass target only (binary fingerprints unchanged)
+        parts["target"] = cfg["target"]
+        parts["classes"] = class_info(cfg)
     return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -190,9 +217,9 @@ def specs_from_config(cfg: dict, mode: str) -> list[RunSpec]:
     """Every run of the experiment: all models (+ reference) x 2 scenarios on the primary block
     size, the robustness models (+ reference) on the other block sizes, and the separate purge
     analysis on the primary block size."""
-    ex, bc = cfg["experiment"], cfg["blockcv"]
-    blocks = cfg["smoke"]["block_sizes_m"] if mode == "smoke" else bc["block_sizes_m"]
-    primary = int(blocks[0]) if mode == "smoke" else int(bc["primary_block_m"])
+    ex = cfg["experiment"]
+    blocks = (cfg["smoke"]["block_sizes_m"] or [F.primary_block(cfg)]) if mode == "smoke" else F.block_sizes(cfg)
+    primary = int(blocks[0]) if mode == "smoke" else F.primary_block(cfg)
     reference = [BASELINE] if ex.get("reference_baseline") else []
     robust = list(ex.get("robustness_models", ex["models"]))
     specs = [RunSpec(s, int(b), m) for b in blocks for s in ex["scenarios"]
@@ -216,6 +243,7 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
     groups[groups == 0] = -1
     Xtr, ytr, dtr = train[FEATURES].values, train.y.values, train.depth_top_m.values
     grid = threshold_grid(cfg)
+    K = n_classes(cfg)
     ids = sorted(set(groups[groups > 0]))
     spec_tag = f"final_{scenario}_{block_m}m_{model_name}"
     seed = seed_for(cfg, spec_tag)
@@ -224,16 +252,17 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
     scored = (groups > 0) & meas
 
     def oof_of(params):
-        oof = np.full(len(train), np.nan)
+        oof = np.full(len(train) if K == 2 else (len(train), K), np.nan)
         for g in ids:
             va = groups == g
             ev = va & meas
-            _, oof[ev] = _fit_predict(model_name, params, cfg, seed, smoke, Xtr[~va], ytr[~va], Xtr[ev], dtr[~va], dtr[ev])
+            _, oof[ev] = _fit_predict(model_name, params, cfg, seed, smoke, Xtr[~va], ytr[~va], Xtr[ev],
+                                      dtr[~va], dtr[ev], K)
         return oof
 
     if model_name == BASELINE or not cfg["search_space"].get(model_name):
         params = {}
-        thr, f1 = best_threshold(ytr[scored], oof_of(params)[scored], grid)
+        thr, f1 = _score(ytr[scored], oof_of(params)[scored], K, grid)
         trials = pd.DataFrame([{"number": 0, "value": f1, "user_attrs_threshold": thr}])
     else:
         n_trials = n_trials or (cfg["smoke"]["n_trials"] if smoke else cfg["experiment"]["n_trials"][model_name])
@@ -241,7 +270,7 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
         def objective(trial):
             p = suggest(trial, cfg["search_space"][model_name])
             oof = oof_of(p)
-            t, f = best_threshold(ytr[scored], oof[scored], grid)
+            t, f = _score(ytr[scored], oof[scored], K, grid)
             trial.set_user_attr("threshold", t)
             return f
 
@@ -249,9 +278,9 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
         study.optimize(objective, n_trials=n_trials, n_jobs=1)
         params, thr, f1 = study.best_params, study.best_trial.user_attrs["threshold"], study.best_value
         trials = study.trials_dataframe(attrs=("number", "value", "params", "user_attrs", "state", "duration"))
-    model, _ = _fit_predict(model_name, params, cfg, seed, smoke, Xtr, ytr, Xtr[:1], dtr, dtr[:1])
+    model, _ = _fit_predict(model_name, params, cfg, seed, smoke, Xtr, ytr, Xtr[:1], dtr, dtr[:1], K)
     return {"model": model, "params": params, "threshold": thr, "cv_macro_f1": float(f1), "trials": trials,
-            "scenario": scenario, "model_name": model_name, "block_m": block_m,
+            "scenario": scenario, "model_name": model_name, "block_m": block_m, "n_classes": K,
             "n_train_boreholes": int(train.BH_Code.nunique()), "n_train_cells": int(len(train)),
             "n_train_filled_cells": int((~meas).sum()),
             "top_elevation_range": (float(train.Top_Elevation_m.min()), float(train.Top_Elevation_m.max())),

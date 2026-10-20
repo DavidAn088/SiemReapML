@@ -19,7 +19,7 @@ import pandas as pd
 
 from .data import FEATURES
 from .geo import DEM, grid_columns, load_polygon, nearest_distance
-from .metrics import entropy
+from .metrics import entropy, entropy_mc
 
 
 def columns(cfg: dict) -> pd.DataFrame:
@@ -57,12 +57,26 @@ def predict(model, threshold: float, grid: pd.DataFrame, chunk_rows: int) -> pd.
     return grid.assign(p_clay=p, clay=(p >= threshold).astype("int8"), entropy=entropy(p).astype("float32"))
 
 
+def predict_mc(model, grid: pd.DataFrame, chunk_rows: int, clay_classes: list[int]) -> pd.DataFrame:
+    """Multiclass: predicted class (most probable), its probability, the normalised entropy,
+    P(Clay group) and the probability of every class."""
+    X = grid[FEATURES].values
+    P = np.vstack([model.predict_proba(X[s:s + chunk_rows]) for s in range(0, len(grid), chunk_rows)]).astype("float32")
+    out = grid.assign(soil_class=P.argmax(axis=1).astype("int8"), p_max=P.max(axis=1),
+                      entropy=entropy_mc(P).astype("float32"), p_clay=P[:, clay_classes].sum(axis=1))
+    return out.assign(**{f"p_{c}": P[:, c] for c in range(P.shape[1])})
+
+
 def add_flags(grid: pd.DataFrame, cols: pd.DataFrame, train_bh_xy: np.ndarray, validated_distance_m: float,
-              top_elev_range: tuple[float, float]) -> pd.DataFrame:
+              top_elev_range: tuple[float, float], zone_edges_m=None) -> pd.DataFrame:
     """Horizontal flag: column farther from the nearest training borehole than the distances
-    evaluated in spatial CV. Vertical flag: cell-top elevation outside the training range."""
+    evaluated in spatial CV. Vertical flag: cell-top elevation outside the training range.
+    Optional reliability zones: 1, 2, ... for distance classes split at `zone_edges_m`."""
     d = nearest_distance(cols[["X", "Y"]].values, train_bh_xy)
     g = grid.assign(dist_nearest_bh_m=d[grid.col].astype("float32"))
+    if zone_edges_m:
+        g["reliability_zone"] = (np.searchsorted(np.asarray(zone_edges_m, float), g.dist_nearest_bh_m.values,
+                                                 side="right") + 1).astype("int8")
     g["extrap_horizontal"] = (g.dist_nearest_bh_m > validated_distance_m).astype("int8")
     lo, hi = top_elev_range
     g["extrap_vertical"] = ((g.Top_Elevation_m < lo) | (g.Top_Elevation_m > hi)).astype("int8")
@@ -70,10 +84,11 @@ def add_flags(grid: pd.DataFrame, cols: pd.DataFrame, train_bh_xy: np.ndarray, v
 
 
 def to_points_csv(grid: pd.DataFrame, path) -> None:
-    cols = ["X", "Y", "Z", "depth_top_m", "Top_Elevation_m", "ground_m", "p_clay", "clay", "entropy",
-            "dist_nearest_bh_m", "extrap_horizontal", "extrap_vertical"]
+    cols = ["X", "Y", "Z", "depth_top_m", "Top_Elevation_m", "ground_m", "soil_class", "p_max", "p_clay", "clay",
+            "entropy", *[c for c in grid.columns if c.startswith("p_") and c[2:].isdigit()],
+            "dist_nearest_bh_m", "reliability_zone", "extrap_horizontal", "extrap_vertical"]
     g = grid.rename(columns={"UTM_Easting_m": "X", "UTM_Northing_m": "Y"})
-    g[cols].to_csv(path, index=False, float_format="%.3f")
+    g[[c for c in cols if c in g.columns]].to_csv(path, index=False, float_format="%.3f")
 
 
 def to_voxel_netcdf(grid: pd.DataFrame, cols: pd.DataFrame, cfg: dict, path) -> dict:
@@ -95,7 +110,9 @@ def to_voxel_netcdf(grid: pd.DataFrame, cols: pd.DataFrame, cfg: dict, path) -> 
     ok = (m >= 0) & (m < len(zc))
     data = {}
     for name, fill, dtype in (("p_clay", np.nan, "float32"), ("entropy", np.nan, "float32"),
-                              ("clay", -1, "int8"), ("extrap_horizontal", -1, "int8"), ("extrap_vertical", -1, "int8")):
+                              ("clay", -1, "int8"), ("soil_class", -1, "int8"), ("p_max", np.nan, "float32"),
+                              ("reliability_zone", -1, "int8"),
+                              ("extrap_horizontal", -1, "int8"), ("extrap_vertical", -1, "int8")):
         if name not in grid:
             continue
         a = np.full(shape, fill, dtype=dtype)
@@ -110,10 +127,12 @@ def to_voxel_netcdf(grid: pd.DataFrame, cols: pd.DataFrame, cfg: dict, path) -> 
     ds.p_clay.attrs.update(long_name="probability of Clay (CL/CH)", units="1")
     if "clay" in ds:
         ds.clay.attrs.update(long_name="predicted class (1 = Clay, 0 = Sand)")
+    if "soil_class" in ds:
+        ds.soil_class.attrs.update(long_name="predicted soil class index (see classes.json)")
     ds.x.attrs.update(standard_name="projection_x_coordinate", units="m", axis="X")
     ds.y.attrs.update(standard_name="projection_y_coordinate", units="m", axis="Y")
     ds.z.attrs.update(standard_name="height", long_name="elevation (DEM datum)", units="m", positive="up", axis="Z")
-    ds.attrs.update(Conventions="CF-1.8", title="Siem Reap Downtown 3D Clay/Sand prediction",
+    ds.attrs.update(Conventions="CF-1.8", title="Siem Reap Downtown 3D soil prediction",
                     source="siemreap notebooks 05_final_model_external_3d", grid_spacing_m=sp, layer_thickness_m=h)
     enc = {v: {"zlib": True, "complevel": 4, **({"_FillValue": -1} if data[v][1].dtype == np.int8 else {})}
            for v in data}

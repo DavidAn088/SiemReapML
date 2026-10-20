@@ -1,0 +1,196 @@
+# Design constants for the Siem Reap 3D soil-class model (5-class variant).
+# Select it with SIEMREAP_CONFIG=project_5class.toml (the 5-class notebooks set this in their
+# first cell). Everything this configuration writes goes to data/processed_5class,
+# data/folds_5class and outputs_5class, so it never touches the binary Clay/Sand project.
+#
+# Target (design report section 11): the soil class of each sampled interval, from its USCS
+# group (Clay = CL/CH, Sand = SC/SM/SP) and its SPT-N value, following the USCS-plus-strength
+# classes of Khamjan et al. (2026, Eng. Geol. 371:108880) with consistency/density ranges of
+# Terzaghi & Peck. Classes with fewer than `min_class_records` development records are merged
+# into a neighbouring class of the same group BEFORE any modelling (counts only).
+# Validation: spatial block CV; the block size is NOT fixed here: R/01_mc_block_size.R sets it
+# to the blockCV cv_spatial_autocor range of the class indicators (Valavi et al. 2019).
+
+[data]
+raw_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+raw_csv_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+crs_epsg = 32648
+
+[sources]
+workbook = "data/raw/Final_Men_Ten_Mg_Hah_KGEO_Digitalized_COMPLETE_Depth_Formulas.xlsx"
+workbook_sha256 = "78a426c61a30cd103b1477aa7b52e67a8cc45f1163e00d5f0d0d938032aaaddc"
+master_sheet = "Study_Range_Stacking"
+qc_sheet = "QC_Digitalization"
+downtown_shp = "data/raw/gis/downtown/downtown.shp"
+downtown_shp_sha256 = "6ab634176e29a9691e8117deb37a5864b63797fb1aa065c48ae9adc9654f76e7"
+ring_shp = "data/raw/gis/ring_5km/Ring_5km.shp"
+ring_shp_sha256 = "70e23e22503b1f401cd9c7845b24a2a6478df3016e57a9ca85b3ea0defc0cfd8"
+dem = "data/raw/gis/dem_downtown"
+dem_data_sha256 = "9ef9086739ea12cd4a219d6290045d781c07b0ec619af8401be28d59eb492a9f"
+dem_sampler = "bilinear"
+
+[target]
+kind = "multiclass"
+# A sample is a record with a USCS symbol of either group AND an SPT-N value, starting above
+# bottom_m. Its depth is Depth_From_m (the top of the sampled interval).
+clay = ["CL", "CH"]
+sand = ["SC", "SM", "SP"]
+# Fine classes by SPT-N (blows/0.3 m), upper bounds inclusive; the last class is open-ended.
+clay_names = ["Soft", "Medium stiff", "Stiff", "Very stiff to hard"]
+clay_n_upper = [4, 8, 15]
+sand_names = ["Loose", "Medium dense", "Dense"]
+sand_n_upper = [10, 30]
+# Merge rule, fixed before modelling: while the smallest class of a group has fewer than this
+# many development records, merge it with its smaller neighbour (in SPT-N order).
+min_class_records = 100
+
+[depth]
+top_m = 0.0
+bottom_m = 20.0                   # median borehole depth in Downtown is 19.95 m
+cell_m = 1.0                      # layer thickness of the 3D prediction grid (as Khamjan et al.)
+max_interval_m = 3.0              # longer records are not treated as samples
+fill_gaps = false                 # not applicable: SPT-N is not continuous between tests
+bands_m = [0.0, 5.0, 10.0, 15.0, 20.0]
+
+[labels]
+clay = ["CL", "CH"]
+sand = ["SC", "SM", "SP"]
+
+[regions]
+downtown = "Downtown"
+buffer_5km = "Downtown_5km"
+excluded = ["Downtown_10km", "Unassigned"]
+
+[seeds]
+global = 20261012
+
+[paths]
+processed = "data/processed_5class"
+folds = "data/folds_5class"
+outputs = "outputs_5class"
+manual_flags = "data/raw/manual_borehole_flags.csv"
+blockcv_source = "data/raw/blockCV-master"
+
+[external]
+# Identical rule and settings to the binary project, so the same 11 boreholes are selected and
+# the committed lock (config/external_holdout.lock.json) still applies.
+eligibility_bottom_m = 15.0       # eligibility counts use 0-15 m as in the binary project
+site_linkage_m = 100.0
+n_zones = 3
+n_generalisation_sites = 5
+generalisation_min_isolation_m = 500.0
+n_interpolation_boreholes = 5
+interpolation_min_site_size = 2
+min_depth_m = 15.0
+min_uscs_intervals = 10
+max_coordinate_mismatch_m = 5.0
+max_record_length_m = 1.0
+
+[blockcv]
+auto_block_size = true            # block size = blockCV cv_spatial_autocor range (R/01_mc_block_size.R)
+extra_block_sizes_m = []          # optional sensitivity sizes, e.g. [200]; empty = autocorrelation size only
+k = 5
+hexagon = false
+selection = "random"
+iteration = 300
+seed = 20261012
+
+[spatial]
+slice_m = 1.5                     # depth slices for the autocorrelation ranges (1.5 m SPT cycle)
+min_boreholes_per_slice = 30      # slices with fewer boreholes are not used for the range
+min_boreholes_with_class = 10     # class indicators present in fewer boreholes of a slice are not used
+
+[inner_cv]
+min_boreholes = 8
+min_cells = 100
+min_class_cells = 5               # every class must occur at least this often in each inner validation fold
+
+[experiment]
+scenarios = ["A"]                 # Downtown only (the 5 km ring did not help the binary model)
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]
+reference_baseline = true         # depth-slice class shares, reported beside the five models
+n_jobs = 4
+threshold_grid = [0.05, 0.95, 0.01]  # not used for multiclass (prediction = most probable class)
+purge_distances_m = []
+purge_models = []
+
+[experiment.n_trials]
+RF = 50
+XGB = 50
+MLP = 50
+GWRF = 30
+GWXGB = 30
+
+[gw]
+# A neighbourhood needs at least min_boreholes boreholes and at least two classes with
+# min_cells_per_class samples; classes absent from a neighbourhood get probability 0 locally
+# and are supplied by the global model through the blend.
+min_boreholes = 5
+min_cells_per_class = 10
+max_neighbours = 80
+local_rf_trees = 100
+local_xgb_rounds_max = 300
+
+[grid3d]
+spacing_m = 25.0
+chunk_rows = 500000
+zone_edges_m = [100.0, 300.0]     # reliability zones by distance to the nearest training borehole: 1 <= 100 m, 2 <= 300 m, 3 > 300 m
+
+[smoke]
+outer_folds = [1]
+block_sizes_m = []                # smoke uses the autocorrelation block size
+n_trials = 2
+rf_trees = 50
+mlp_max_iter = 200
+grid_spacing_m = 100.0
+
+# ---------------------------------------------------------------- Optuna search spaces ----
+[search_space.RF]
+n_estimators = { type = "int", low = 200, high = 800, step = 100 }
+max_depth = { type = "int", low = 3, high = 30 }
+min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+max_samples = { type = "float", low = 0.5, high = 1.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.XGB]
+n_estimators = { type = "int", low = 100, high = 800, step = 50 }
+learning_rate = { type = "float", low = 0.01, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 10 }
+min_child_weight = { type = "float", low = 1.0, high = 30.0, log = true }
+subsample = { type = "float", low = 0.5, high = 1.0 }
+colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+gamma = { type = "float", low = 0.0, high = 5.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.MLP]
+n_layers = { type = "int", low = 1, high = 3 }
+n_units = { type = "int", low = 8, high = 128, log = true }
+activation = { type = "categorical", choices = ["relu", "tanh"] }
+alpha = { type = "float", low = 1e-6, high = 0.1, log = true }
+learning_rate_init = { type = "float", low = 1e-4, high = 1e-2, log = true }
+batch_size = { type = "categorical", choices = [32, 64, 128] }
+max_iter = { type = "int", low = 200, high = 1000, step = 100 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.GWRF]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+max_depth = { type = "int", low = 3, high = 20 }
+min_samples_leaf = { type = "int", low = 1, high = 30, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[search_space.GWXGB]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+n_estimators = { type = "int", low = 50, high = 300, step = 50 }
+learning_rate = { type = "float", low = 0.03, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 6 }
+min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
+subsample = { type = "float", low = 0.6, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }

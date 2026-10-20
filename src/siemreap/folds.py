@@ -13,6 +13,8 @@ nothing in Python regenerates them (brief section 7). File formats:
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 
@@ -20,6 +22,30 @@ from .config import folds_dir
 from .geo import nearest_distance
 
 XY = ["UTM_Easting_m", "UTM_Northing_m"]
+
+
+def block_decision(cfg: dict) -> dict | None:
+    """The block size chosen in R from the blockCV autocorrelation range (auto_block_size)."""
+    p = folds_dir(cfg) / "block_size_decision.json"
+    return json.loads(p.read_text()) if p.exists() else None
+
+
+def block_sizes(cfg: dict) -> list[int]:
+    """Block sizes of the experiment, primary first. With auto_block_size the primary size is
+    read from the R decision file; otherwise it is the configured list."""
+    bc = cfg["blockcv"]
+    if not bc.get("auto_block_size"):
+        return [int(b) for b in bc["block_sizes_m"]]
+    d = block_decision(cfg)
+    if d is None:
+        raise FileNotFoundError("block_size_decision.json not found: run the R scripts (notebook 01, last cell).")
+    sizes = [int(d["block_size_m"])] + [int(b) for b in bc.get("extra_block_sizes_m", [])]
+    return list(dict.fromkeys(sizes))
+
+
+def primary_block(cfg: dict) -> int:
+    bc = cfg["blockcv"]
+    return block_sizes(cfg)[0] if bc.get("auto_block_size") else int(bc["primary_block_m"])
 
 
 def load_outer(cfg: dict, block_m: int) -> pd.DataFrame:
@@ -57,9 +83,13 @@ def validate_outer(folds: pd.DataFrame, cells: pd.DataFrame, cfg: dict) -> dict:
     if set(ring.index) - dev_ring or (ring.fold != 0).any():
         problems.append("train_only rows must be 5 km ring development boreholes with fold 0")
     c = cells[cells.in_A & (cells.measured == 1 if "measured" in cells else True)].join(cv.fold, on="BH_Code")
-    per = c.groupby("fold").agg(boreholes=("BH_Code", "nunique"), cells=("y", "size"), clay_share=("y", "mean"))
-    if (per.clay_share <= 0).any() or (per.clay_share >= 1).any():
+    clay = c.y_bin if "y_bin" in c else c.y
+    per = c.assign(clay=clay).groupby("fold").agg(boreholes=("BH_Code", "nunique"), cells=("y", "size"),
+                                                   clay_share=("clay", "mean"), classes=("y", "nunique"))
+    if (per.classes < 2).any():
         problems.append("a test fold contains only one class")
+    if "y_bin" in c:  # multiclass: record the class counts of every test fold
+        per = per.join(pd.crosstab(c.fold, c.y).add_prefix("class_"))
     if problems:
         raise ValueError("; ".join(problems))
     return {"k": k, "downtown_dev_boreholes": len(dev_dt), "ring_train_only": int(len(ring)),
@@ -90,13 +120,21 @@ def adequacy(train: pd.DataFrame, groups: np.ndarray, cfg: dict) -> pd.DataFrame
     ic = cfg["inner_cv"]
     rows = []
     meas = train.measured.values == 1 if "measured" in train else np.ones(len(train), bool)
+    multiclass = "y_bin" in train
+    k_all = sorted(train.y.unique()) if multiclass else None
     for g in sorted(set(groups[groups > 0])):
         v = train[(groups == g) & meas]  # validation is scored on measured cells only
+        size_ok = v.BH_Code.nunique() >= ic["min_boreholes"] and len(v) >= ic["min_cells"]
+        if multiclass:  # every class must occur in every inner validation fold
+            cnt = v.y.value_counts().reindex(k_all, fill_value=0)
+            rows.append({"inner_fold": int(g), "boreholes": v.BH_Code.nunique(), "cells": len(v),
+                         "clay_share": round(float(v.y_bin.mean()), 3), "min_class_cells": int(cnt.min()),
+                         "ok": bool(size_ok and cnt.min() >= ic.get("min_class_cells", 1))})
+            continue
         share = v.y.mean()
         rows.append({"inner_fold": int(g), "boreholes": v.BH_Code.nunique(), "cells": len(v),
                      "clay_share": round(float(share), 3),
-                     "ok": bool(v.BH_Code.nunique() >= ic["min_boreholes"] and len(v) >= ic["min_cells"]
-                                and ic["min_class_share"] <= share <= 1 - ic["min_class_share"])})
+                     "ok": bool(size_ok and ic["min_class_share"] <= share <= 1 - ic["min_class_share"])})
     return pd.DataFrame(rows)
 
 
