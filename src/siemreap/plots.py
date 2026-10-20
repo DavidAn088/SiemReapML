@@ -173,9 +173,8 @@ def confusion_plot(cm: pd.DataFrame, names: list[str], title=None, ax=None):
         for j in range(v.shape[1]):
             ax.text(j, i, f"{v[i, j]:.0f}", ha="center", va="center", fontsize=8,
                     color="white" if v[i, j] > 55 else INK)
-    short = [n.replace(" clay", "\nclay").replace(" sand", "\nsand") for n in names]
-    ax.set_xticks(range(len(names)), short, fontsize=7, rotation=0)
-    ax.set_yticks(range(len(names)), short, fontsize=7)
+    ax.set_xticks(range(len(names)), names, fontsize=7, rotation=35, ha="right", rotation_mode="anchor")
+    ax.set_yticks(range(len(names)), names, fontsize=7)
     ax.set_xlabel("Predicted class")
     ax.set_ylabel("Observed class")
     plt.colorbar(im, ax=ax, shrink=0.8, label="% of observed class")
