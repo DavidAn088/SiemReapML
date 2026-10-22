@@ -34,7 +34,16 @@ if (!dir.exists(src)) stop("blockCV source not found at ", src)
 
 desc <- read.dcf(file.path(src, "DESCRIPTION"))
 cat("Installing blockCV", desc[, "Version"], "from", src, "\n")
-status <- system2(file.path(R.home("bin"), "R"), c("CMD", "INSTALL", paste0("--library=", shQuote(lib)), shQuote(src)))
+# Build from a clean copy: compiled files left in src/ by another computer (*.o, *.so, *.dll)
+# would be linked into this build and break it.
+build_dir <- file.path(tempdir(), "blockCV-build")
+unlink(build_dir, recursive = TRUE)
+dir.create(build_dir)
+file.copy(src, build_dir, recursive = TRUE)
+clean <- file.path(build_dir, basename(src))
+stale <- list.files(file.path(clean, "src"), pattern = "\\.(o|so|dll)$", full.names = TRUE)
+if (length(stale)) { cat("Removing", length(stale), "compiled file(s) from the copy:", basename(stale), "\n"); file.remove(stale) }
+status <- system2(file.path(R.home("bin"), "R"), c("CMD", "INSTALL", paste0("--library=", shQuote(lib)), shQuote(clean)))
 if (status != 0) stop("blockCV installation failed (on Windows check that Rtools is installed).")
 
 library(blockCV)
