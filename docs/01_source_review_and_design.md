@@ -672,3 +672,37 @@ An earlier statement needs correcting. For the binary indicator, blockCV's own s
 ### 11.4 What to expect
 
 Five classes are a harder task than two. Chance Macro-F1 is about 0.2 instead of 0.5, and every Clay/Sand error remains. Scores will therefore be lower than the binary ones and are not comparable with them. Consistency and density follow depth closely, so the depth-only reference is the comparison that shows what location adds. No result of this experiment exists yet.
+
+## 12. Design revision 3 (2026-10-22): binary, Downtown, blockCV block size, filled test cells, XAI
+
+The binary Clay/Sand experiment restarts from scratch in a new project folder, with these changes (`config/project.toml`):
+
+1. **Downtown only.** Scenario A only: the 5 km ring never improved the Downtown predictions (revision 2 results).
+2. **Block size chosen by blockCV, not by hand.**
+   * `R/01_spatial_autocorrelation.R` takes the per-slice ranges that `blockCV::cv_spatial_autocor` returns for the Clay indicator (1.5 m depth slices). Their median is the block size, which is blockCV's own rule for several layers (Valavi et al. 2019).
+   * The value is written to `data/folds/block_size_decision.json`, and `R/02_blockcv_folds.R` builds the folds from it.
+   * In the revision 2 data this rule gave 106 m. The value of this run is whatever R computes.
+   * RF and XGB are also run on 2× and 3× the size, and with spatial purge at 1× and 2× the size.
+3. **Filled cells are test data too (`score_filled = true`).** At the student's request, gap-filled cells are now also outer-test and inner-validation cells; previously they were training only (§10.3). The risk is set out in §10.3: filled cells lie inside uniform layers and are easier to predict, so scores rise without any gain in skill. Therefore:
+   * every prediction keeps its `measured` flag;
+   * notebook 04 reports every metric on all test cells and on measured test cells only;
+   * the external evaluation does the same, with the depth-only reference on the same cells.
+
+   The thesis must state which number is quoted and show the other.
+4. **Filled-cell training weight.** The weight of a filled cell relative to a measured one (0.25, 0.5 or 1) is tuned in the inner CV with the other hyperparameters, so the data decide how much the inferred cells should count. Input scaling and monotonic constraints were considered and not used:
+   * Tree models are invariant to input scaling.
+   * The observed clay share is not monotonic in elevation (it rises to about 10–12 m and falls near the surface), so a monotonic constraint would contradict the data.
+5. **The Gaussian process is dropped** for run time.
+6. **Explainable AI (notebook 07).** Both methods use the outer test folds of the primary block size and the saved outer-fold models:
+   * **Permutation importance:** the drop in balanced accuracy when an input, or a group (location = Easting + Northing; elevation), is shuffled.
+   * **SHAP:** exact Shapley values of P(Clay), with the same model-agnostic explainer for every model.
+   * **Elevation dependence plot:** compared with the observed clay-share profile, as a geotechnical plausibility check.
+7. **3D output.** Reliability zones by distance to the nearest training borehole (≤ 100 m, ≤ 300 m, > 300 m) are added to the 3D grid.
+
+Unchanged:
+* the cells (0.5 m, 0–15 m; the 0.5 m cell matches the median sample length of 0.45 m);
+* the inputs (Easting, Northing, top elevation; no depth input, by the student's decision);
+* the gap-filling rule;
+* the models (RF, XGB, MLP, GWRF, GWXGB, depth-only reference);
+* the nested CV, the selection rule (applied to all test cells, with the measured-only selection printed for comparison);
+* the external holdout (same rule and lock).

@@ -76,9 +76,11 @@ one_fold_per_borehole <- function(code, fold) {
 decision <- NULL
 if (isTRUE(bc$auto_block_size)) {
   dec_file <- file.path(fdir, "block_size_decision.json")
-  if (!file.exists(dec_file)) stop("Run R/01_mc_block_size.R first (it writes ", dec_file, ").")
+  if (!file.exists(dec_file)) stop("Run the autocorrelation script first (R/01_spatial_autocorrelation.R, or ",
+                                    "R/01_mc_block_size.R for the 5-class model); it writes ", dec_file, ".")
   decision <- jsonlite::fromJSON(dec_file)
-  block_sizes <- unique(c(decision$block_size_m, unlist(bc$extra_block_sizes_m)))
+  block_sizes <- unique(c(decision$block_size_m, round(decision$block_size_m * unlist(bc$extra_block_multiples)),
+                          unlist(bc$extra_block_sizes_m)))
   cat("Block size from the autocorrelation range:", decision$block_size_m, "m\n")
 } else {
   block_sizes <- bc$block_sizes_m
@@ -164,7 +166,7 @@ write.csv(fs, file.path(agg, "fold_summary.csv"), row.names = FALSE)
 write.csv(ds, file.path(agg, "test_to_train_distance_by_fold.csv"), row.names = FALSE)
 if (!is.null(W)) write.csv(W, file.path(agg, "wasserstein_vs_prediction_domain.csv"), row.names = FALSE)
 
-if (!is.null(decision)) {  # auto_block_size: the decision was made in R/01_mc_block_size.R
+if (!is.null(decision)) {  # auto_block_size: the decision was made by the autocorrelation script
   rule <- list(auto_block_size = TRUE, block_size_m = decision$block_size_m, method = decision$method,
                block_sizes_run = block_sizes, block_offsets = offsets)
   if (!is.null(W)) rule$W_cv <- setNames(as.list(W$CV), W$block_size_m)

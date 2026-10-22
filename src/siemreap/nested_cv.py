@@ -14,7 +14,11 @@ For one run specification (scenario, block size, purge distance, model):
       refit the best configuration on the whole outer-training set, predict fold k
 
 With gap filling on (design report section 10), filled cells are training data only: the
-outer test cells, the inner validation scores and the thresholds use measured cells.
+outer test cells, the inner validation scores and the thresholds use measured cells, unless
+`score_filled` is set (revision 3, section 12): then filled cells are also test and validation
+cells, every prediction carries its `measured` flag, and metrics are reported on all cells and
+on measured cells. The training weight of filled cells (`filled_weights`) is tuned in the
+inner CV like a hyperparameter.
 
 Results are checkpointed per outer fold, so an interrupted run resumes at the next fold.
 Each fold's Optuna study runs in memory with a fixed seed; a fold is therefore either
@@ -48,6 +52,24 @@ def _measured_mask(cells: pd.DataFrame) -> np.ndarray:
     return cells.measured.values == 1 if "measured" in cells else np.ones(len(cells), bool)
 
 
+def _scored_mask(cells: pd.DataFrame, cfg: dict) -> np.ndarray:
+    """Cells that are scored in validation: measured cells, or all cells with score_filled."""
+    return np.ones(len(cells), bool) if cfg["depth"].get("score_filled") else _measured_mask(cells)
+
+
+def _weights(meas: np.ndarray, params: dict) -> np.ndarray | None:
+    """Training weights: 1 for measured cells, `filled_weight` for filled cells."""
+    fw = params.get("filled_weight", 1.0)
+    return None if fw == 1.0 or meas.all() else np.where(meas, 1.0, float(fw))
+
+
+def _suggest_filled_weight(trial, cfg, meas) -> dict:
+    fws = cfg["experiment"].get("filled_weights")
+    if not fws or meas.all():
+        return {}
+    return {"filled_weight": trial.suggest_categorical("filled_weight", [float(w) for w in fws])}
+
+
 @dataclass(frozen=True)
 class RunSpec:
     scenario: str
@@ -60,8 +82,10 @@ class RunSpec:
         return f"{self.scenario}_{self.block_m}m_p{int(self.purge_m)}_{self.model}"
 
 
-def _fit_predict(name, params, cfg, seed, smoke, Xtr, ytr, Xte, dtr=None, dte=None, K=2):
-    """Fit and predict. Binary: returns P(Clay) as a vector; multiclass: the n x K matrix."""
+def _fit_predict(name, params, cfg, seed, smoke, Xtr, ytr, Xte, dtr=None, dte=None, K=2, wtr=None):
+    """Fit and predict. Binary: returns P(Clay) as a vector; multiclass: the n x K matrix.
+    `wtr`: optional training sample weights (filled-cell weight)."""
+    params = {k: v for k, v in params.items() if k != "filled_weight"}
     if name == BASELINE:
         m = DepthPrior(bottom_m=cfg["depth"]["bottom_m"], n_classes=K).fit(dtr, ytr)
         P = m.predict_proba(dte)
@@ -69,7 +93,10 @@ def _fit_predict(name, params, cfg, seed, smoke, Xtr, ytr, Xte, dtr=None, dte=No
         m = build(name, params, cfg, seed, smoke, n_classes=K)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ConvergenceWarning)
-            m.fit(Xtr, ytr)
+            if wtr is None:
+                m.fit(Xtr, ytr)
+            else:
+                m.fit(Xtr, ytr, sample_weight=wtr)
         P = m.predict_proba(Xte)
     return m, (P[:, 1] if K == 2 else P)
 
@@ -84,6 +111,7 @@ def _score(y, P, K, grid):
 
 def _prediction_table(test, P, thr, K, cfg):
     cols = ["BH_Code", "cell", "depth_top_m", "UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m", "y"]
+    cols += ["measured"] if "measured" in test else []
     if K == 2:
         pred = test[cols].copy()
         return pred.assign(p_clay=P, threshold=thr, y_pred=(P >= thr).astype(int))
@@ -99,10 +127,12 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
              n_trials: int | None = None, keep_model: bool = False) -> dict:
     smoke = mode == "smoke"
     train, test = F.split(cells, folds, k, spec.scenario, spec.purge_m)
-    test = measured(test)
+    if not cfg["depth"].get("score_filled"):
+        test = measured(test)
     groups, adq, source = F.inner_groups(train, folds, k, cfg, spec.block_m)
     Xtr, ytr, dtr = train[FEATURES].values, train.y.values, train.depth_top_m.values
     meas = _measured_mask(train)
+    scored = _scored_mask(train, cfg)
     grid = threshold_grid(cfg)
     K = n_classes(cfg)
     seed = seed_for(cfg, spec.tag, k)
@@ -111,12 +141,13 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
 
     def inner_oof(params):
         oof = np.full(len(train) if K == 2 else (len(train), K), np.nan)
+        w = _weights(meas, params)
         for g in inner_ids:
             va = groups == g
-            ev = va & meas  # fit on all cells outside the group, score its measured cells
+            ev = va & scored  # fit on all cells outside the group, score its measured (or all) cells
             _, oof[ev] = _fit_predict(spec.model, params, cfg, seed, smoke, Xtr[~va], ytr[~va], Xtr[ev],
-                                      dtr[~va], dtr[ev], K)
-        mask = np.isin(groups, inner_ids) & meas
+                                      dtr[~va], dtr[ev], K, None if w is None else w[~va])
+        mask = np.isin(groups, inner_ids) & scored
         return oof, mask
 
     space = cfg["search_space"].get(spec.model, {})
@@ -129,11 +160,11 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
         n_trials = n_trials or (cfg["smoke"]["n_trials"] if smoke else cfg["experiment"]["n_trials"][spec.model])
 
         def objective(trial):
-            p = suggest(trial, space)
+            p = {**suggest(trial, space), **_suggest_filled_weight(trial, cfg, meas)}
             oof, mask = inner_oof(p)
             t, f = _score(ytr[mask], oof[mask], K, grid)
             trial.set_user_attr("threshold", t)
-            per = [_score(ytr[(groups == g) & meas], oof[(groups == g) & meas], K, [t])[1] for g in inner_ids]
+            per = [_score(ytr[(groups == g) & scored], oof[(groups == g) & scored], K, [t])[1] for g in inner_ids]
             trial.set_user_attr("inner_fold_macro_f1", [round(x, 4) for x in per])
             return f
 
@@ -143,8 +174,9 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
         params, thr, inner_f1 = study.best_params, study.best_trial.user_attrs["threshold"], study.best_value
         trials = study.trials_dataframe(attrs=("number", "value", "params", "user_attrs", "state", "duration"))
 
+    w = _weights(meas, params)
     model, p_test = _fit_predict(spec.model, params, cfg, seed, smoke, Xtr, ytr, test[FEATURES].values,
-                                 dtr, test.depth_top_m.values, K)
+                                 dtr, test.depth_top_m.values, K, w)
     dist = F.test_train_distances(train, test)
     pred = _prediction_table(test, p_test, thr, K, cfg)
     pred = pred.assign(dist_nearest_train_m=pred.BH_Code.map(dist).values, outer_fold=k, **asdict(spec))
@@ -152,7 +184,8 @@ def run_fold(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, k: int, cf
             "inner_adequacy": adq.to_dict("records"), "n_train_boreholes": int(train.BH_Code.nunique()),
             "n_train_filled_cells": int((~meas).sum()),
             "n_train_cells": int(len(train)), "n_test_boreholes": int(test.BH_Code.nunique()),
-            "n_test_cells": int(len(test)), "best_params": params, "threshold": thr,
+            "n_test_cells": int(len(test)), "n_test_filled_cells": int((test.measured == 0).sum()) if "measured" in test else 0,
+            "best_params": params, "threshold": thr,
             "inner_macro_f1": float(inner_f1), "n_trials": int(len(trials)), "seconds": round(time.time() - t0, 1),
             "gw_fallback_rate": getattr(model, "fallback_rate_", None)}
     out = {"predictions": pred, "info": info, "trials": trials}
@@ -175,6 +208,9 @@ def fingerprint(cells: pd.DataFrame, folds: pd.DataFrame, spec: RunSpec, cfg: di
         parts["measured"] = pd.util.hash_pandas_object(cells[["BH_Code", "cell", "measured"]], index=False).sum().item()
     if spec.model == "GP":  # added per model, so the fingerprints of the other models are unchanged
         parts["gp"] = cfg["gp"]
+    if cfg["depth"].get("score_filled") or cfg["experiment"].get("filled_weights"):  # revision 3 settings
+        parts["evaluation"] = {"score_filled": cfg["depth"].get("score_filled", False),
+                               "filled_weights": cfg["experiment"].get("filled_weights")}
     if target_kind(cfg) != "binary":  # added for the multiclass target only (binary fingerprints unchanged)
         parts["target"] = cfg["target"]
         parts["classes"] = class_info(cfg)
@@ -224,7 +260,8 @@ def specs_from_config(cfg: dict, mode: str) -> list[RunSpec]:
     robust = list(ex.get("robustness_models", ex["models"]))
     specs = [RunSpec(s, int(b), m) for b in blocks for s in ex["scenarios"]
              for m in (list(ex["models"]) if int(b) == primary else robust) + reference]
-    purge = ex["purge_distances_m"][:1] if mode == "smoke" else ex["purge_distances_m"]
+    purge_d = ex.get("purge_distances_m") or [primary * m for m in ex.get("purge_multiples", [])]
+    purge = purge_d[:1] if mode == "smoke" else purge_d
     purge_models = ex["purge_models"][:1] if mode == "smoke" else ex["purge_models"]
     specs += [RunSpec(s, primary, m, float(d)) for d in purge for s in ex["scenarios"] for m in purge_models]
     return specs
@@ -249,15 +286,17 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
     seed = seed_for(cfg, spec_tag)
 
     meas = _measured_mask(train)
-    scored = (groups > 0) & meas
+    sc = _scored_mask(train, cfg)
+    scored = (groups > 0) & sc
 
     def oof_of(params):
         oof = np.full(len(train) if K == 2 else (len(train), K), np.nan)
+        w = _weights(meas, params)
         for g in ids:
             va = groups == g
-            ev = va & meas
+            ev = va & sc
             _, oof[ev] = _fit_predict(model_name, params, cfg, seed, smoke, Xtr[~va], ytr[~va], Xtr[ev],
-                                      dtr[~va], dtr[ev], K)
+                                      dtr[~va], dtr[ev], K, None if w is None else w[~va])
         return oof
 
     if model_name == BASELINE or not cfg["search_space"].get(model_name):
@@ -268,7 +307,7 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
         n_trials = n_trials or (cfg["smoke"]["n_trials"] if smoke else cfg["experiment"]["n_trials"][model_name])
 
         def objective(trial):
-            p = suggest(trial, cfg["search_space"][model_name])
+            p = {**suggest(trial, cfg["search_space"][model_name]), **_suggest_filled_weight(trial, cfg, meas)}
             oof = oof_of(p)
             t, f = _score(ytr[scored], oof[scored], K, grid)
             trial.set_user_attr("threshold", t)
@@ -278,7 +317,8 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
         study.optimize(objective, n_trials=n_trials, n_jobs=1)
         params, thr, f1 = study.best_params, study.best_trial.user_attrs["threshold"], study.best_value
         trials = study.trials_dataframe(attrs=("number", "value", "params", "user_attrs", "state", "duration"))
-    model, _ = _fit_predict(model_name, params, cfg, seed, smoke, Xtr, ytr, Xtr[:1], dtr, dtr[:1], K)
+    model, _ = _fit_predict(model_name, params, cfg, seed, smoke, Xtr, ytr, Xtr[:1], dtr, dtr[:1], K,
+                            _weights(meas, params))
     return {"model": model, "params": params, "threshold": thr, "cv_macro_f1": float(f1), "trials": trials,
             "scenario": scenario, "model_name": model_name, "block_m": block_m, "n_classes": K,
             "n_train_boreholes": int(train.BH_Code.nunique()), "n_train_cells": int(len(train)),

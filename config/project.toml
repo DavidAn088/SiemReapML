@@ -1,4 +1,7 @@
 # Design constants for the Siem Reap 3D Clay/Sand classification project.
+# Design revision 3 (2026-10-22, design report section 12): Downtown only, block size from the
+# blockCV autocorrelation range, gap-filled cells in training AND test (every score is also
+# reported on measured cells only), filled-cell training weight tuned in the inner CV, XAI.
 # Values follow the research brief (docs/research_brief.md). Where the brief leaves a choice
 # open, the value used here is the recommendation in docs/01_source_review_and_design.md and
 # is marked with the decision number (Dn) it implements, so it can be changed in one place.
@@ -41,6 +44,9 @@ max_interval_m = 3.0
 # touches it. Filled cells are used for training only; every evaluation uses measured cells.
 fill_gaps = true
 fill_max_gap_m = 3.0              # same limit as max_interval_m
+# Revision 3: filled cells are also test (and inner-validation) data. Every metric is reported
+# twice: on all test cells and on the measured test cells only.
+score_filled = true
 # Depth bands for depth-specific metrics (brief section 11).
 bands_m = [0.0, 5.0, 10.0, 15.0]
 
@@ -86,8 +92,11 @@ max_record_length_m = 1.0         # eligibility: no contiguous long records (D12
 
 [blockcv]
 # Outer spatial folds, generated only in R with the original blockCV (brief section 7).
-block_sizes_m = [100, 200, 300]
-primary_block_m = 100             # planned primary; 200 and 300 m are robustness analyses
+# Revision 3: the primary block size is not fixed by hand. R/01_spatial_autocorrelation.R sets it
+# to the blockCV cv_spatial_autocor suggestion: the median of the per-slice ranges of the Clay
+# indicator (Valavi et al. 2019). Sensitivity sizes are multiples of it.
+auto_block_size = true
+extra_block_multiples = [2, 3]    # sensitivity blocks: 2x and 3x the autocorrelation size
 k = 5
 hexagon = false                   # square blocks: "100 m" is the side length (D7)
 selection = "random"
@@ -112,14 +121,17 @@ min_cells = 100
 min_class_share = 0.20
 
 [experiment]
-scenarios = ["A", "B"]            # A: Downtown only; B: Downtown + 5 km ring
-models = ["RF", "XGB", "MLP", "GWRF", "GWXGB", "GP"]   # every model runs on every block size
-# robustness_models = ["RF", "XGB", "GP"]   # optional subset for the non-primary block sizes
+scenarios = ["A"]                 # A: Downtown only
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]
+robustness_models = ["RF", "XGB"] # models run on the sensitivity block sizes
 reference_baseline = true         # depth-band prior, reported beside the five models (D6)
 n_jobs = 4                        # threads per model fit
 threshold_grid = [0.05, 0.95, 0.01]  # start, stop, step of the inner-CV decision threshold search
-purge_distances_m = [100.0, 200.0]   # separate spatial-purge analysis on the primary block size
+purge_multiples = [1, 2]          # spatial purge at 1x and 2x the primary block size (separate analysis)
 purge_models = ["RF", "XGB"]
+# Training weight of filled cells relative to measured cells (1 = equal), chosen in the inner CV
+# for every model with a search space (design report section 12).
+filled_weights = [0.25, 0.5, 1.0]
 
 [experiment.n_trials]
 # Optuna TPE trials per model and outer fold (Schratz et al. 2019: gains saturate near 50).
@@ -128,7 +140,6 @@ XGB = 50
 MLP = 50
 GWRF = 30
 GWXGB = 30
-GP = 1                            # no search: kernel hyperparameters by maximum marginal likelihood
 
 [gw]
 # Geographically weighted RF / XGBoost (Georganos et al. 2021; Grekousis 2025), adapted to
@@ -139,28 +150,15 @@ max_neighbours = 80               # neighbourhood may grow to this size before f
 local_rf_trees = 100
 local_xgb_rounds_max = 300
 
-[gp]
-# Gaussian process classifier (Laplace approximation; Rasmussen & Williams 2006), the ML
-# counterpart of indicator kriging. Anisotropic Matern kernel with separate correlation
-# lengths for Easting, Northing and elevation, fitted by maximum marginal likelihood in each
-# training partition (values below are starting points and bounds, not tuned settings).
-nu = 1.5
-amplitude = 1.0
-amplitude_bounds = [0.01, 10000.0]
-horizontal_length_m = 200.0
-horizontal_bounds_m = [5.0, 20000.0]
-vertical_length_m = 3.0
-vertical_bounds_m = [0.1, 100.0]
-predict_chunk_rows = 10000             # bounds memory when predicting the 3D grid
-
 [grid3d]
+zone_edges_m = [100.0, 300.0]     # reliability zones by distance to the nearest training borehole: 1 <= 100 m, 2 <= 300 m, 3 > 300 m
 spacing_m = 25.0                  # XY spacing of prediction columns inside the Downtown polygon
 chunk_rows = 500000
 
 [smoke]
 # Software validation run (brief section 13). Never reported as results.
 outer_folds = [1]
-block_sizes_m = [100]
+block_sizes_m = []                # smoke uses the autocorrelation block size
 n_trials = 2
 rf_trees = 50
 mlp_max_iter = 200
@@ -218,5 +216,3 @@ subsample = { type = "float", low = 0.6, high = 1.0 }
 reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
 class_weight = { type = "categorical", choices = ["none", "balanced"] }
 
-[search_space.GP]
-# empty: the GP has no Optuna search (see [gp])

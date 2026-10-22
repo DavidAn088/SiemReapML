@@ -108,15 +108,16 @@ class GWClassifier(ClassifierMixin, BaseEstimator):
     def _weights(self, y, w):
         return w * _balanced(y) if self.class_weight == "balanced" else w
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         X, y = np.asarray(X, float), np.asarray(y, int)
+        self._sw = np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight, float)
         xy = np.round(X[:, :2], 2)
         self.sites_, inv = np.unique(xy, axis=0, return_inverse=True)
         self._X, self._y, self._inv = X, y, inv.ravel()
         n_sites = len(self.sites_)
         self.global_, self.global_present_ = _fit_encoded(self.base, dict(self.learner_params or {}),
                                                           self.global_n_estimators, self.random_state, X, y,
-                                                          self._weights(y, np.ones(len(y))))
+                                                          self._weights(y, self._sw))
         self.anchor_tree_ = cKDTree(self.sites_)
         kq = min(self.max_neighbours + 1, n_sites)
         d, i = self.anchor_tree_.query(self.sites_, k=kq)
@@ -158,7 +159,7 @@ class GWClassifier(ClassifierMixin, BaseEstimator):
         mask = w > 0
         return _fit_encoded(self.base, dict(self.learner_params or {}), self.local_n_estimators,
                             self.random_state + 1 + int(a), self._X[mask], self._y[mask],
-                            self._weights(self._y[mask], w[mask]))
+                            self._weights(self._y[mask], w[mask] * self._sw[mask]))
 
     def ensure_local(self, anchors):
         todo = [int(a) for a in np.unique(anchors) if int(a) not in self.local_]

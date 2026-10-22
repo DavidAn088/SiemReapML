@@ -5,6 +5,7 @@ scipy==1.18.1
 scikit-learn==1.9.1
 xgboost==3.4.1
 optuna==5.0.0
+shap==0.54.1
 joblib
 matplotlib==3.11.2
 geopandas==1.2.0

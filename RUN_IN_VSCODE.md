@@ -75,6 +75,8 @@ The smoke run uses one outer fold, the 100 m blocks, two Optuna trials and a 100
 | `03_nested_cv_models` | The long run: roughly 1.5–2.5 days on one 4-core PC for everything (it depends on the computer); run `RUN_BLOCKS = [100]` first to get the primary results sooner, or split the block sizes across two computers. Set `n_jobs` in `config/project.toml` to your number of cores. You can run part of it first, e.g. `RUN_BLOCKS = [100]`. It saves a checkpoint after every outer fold, so if VS Code closes or the PC sleeps, run the notebook again and it continues from where it stopped |
 | `04_results_analysis` | Metrics, figures and the pre-declared model selection |
 | `05_final_model_external_3d` | Final model, the one-time external evaluation, and the 3D output for ArcGIS Pro |
+| `06_journal_figures` | Publication figures in the style of Valavi et al. (2019) |
+| `07_explainability` | Explainable AI: held-out permutation importance (single inputs and location vs elevation) and SHAP |
 
 To keep notebook 03 running without the editor open, run it from a terminal (with the environment activated):
 ```

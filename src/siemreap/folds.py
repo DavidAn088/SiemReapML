@@ -39,7 +39,9 @@ def block_sizes(cfg: dict) -> list[int]:
     d = block_decision(cfg)
     if d is None:
         raise FileNotFoundError("block_size_decision.json not found: run the R scripts (notebook 01, last cell).")
-    sizes = [int(d["block_size_m"])] + [int(b) for b in bc.get("extra_block_sizes_m", [])]
+    base = int(d["block_size_m"])
+    sizes = ([base] + [int(round(base * m)) for m in bc.get("extra_block_multiples", [])]
+             + [int(b) for b in bc.get("extra_block_sizes_m", [])])
     return list(dict.fromkeys(sizes))
 
 
@@ -120,6 +122,8 @@ def adequacy(train: pd.DataFrame, groups: np.ndarray, cfg: dict) -> pd.DataFrame
     ic = cfg["inner_cv"]
     rows = []
     meas = train.measured.values == 1 if "measured" in train else np.ones(len(train), bool)
+    if cfg["depth"].get("score_filled"):  # revision 3: filled cells are validation cells too
+        meas = np.ones(len(train), bool)
     multiclass = "y_bin" in train
     k_all = sorted(train.y.unique()) if multiclass else None
     for g in sorted(set(groups[groups > 0])):

@@ -135,7 +135,11 @@ def test_threshold_and_metrics():
 def test_gp_is_deterministic_and_chunked_prediction_matches(cfg):
     c = synthetic_cells(12)
     X, y = c[["UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m"]].values, c.y.values
-    small = {**cfg, "gp": {**cfg["gp"], "predict_chunk_rows": 7}}
+    gp = {"nu": 1.5, "amplitude": 1.0, "amplitude_bounds": [0.01, 1e4], "horizontal_length_m": 200.0,
+          "horizontal_bounds_m": [5.0, 2e4], "vertical_length_m": 3.0, "vertical_bounds_m": [0.1, 100.0],
+          "predict_chunk_rows": 10000}
+    cfg = {**cfg, "gp": gp}                      # the GP is no longer in the configuration (revision 3)
+    small = {**cfg, "gp": {**gp, "predict_chunk_rows": 7}}
     p1 = build("GP", {}, cfg, seed=3).fit(X, y).predict_proba(X)[:, 1]
     p2 = build("GP", {}, cfg, seed=3).fit(X, y).predict_proba(X)[:, 1]
     p3 = build("GP", {}, small, seed=3).fit(X, y).predict_proba(X)[:, 1]
@@ -146,7 +150,10 @@ def test_gp_is_deterministic_and_chunked_prediction_matches(cfg):
 
 def test_every_model_on_every_block_unless_a_robustness_subset_is_set(cfg):
     from siemreap.nested_cv import BASELINE, specs_from_config
-    primary = cfg["blockcv"]["primary_block_m"]
+    primary = 100
+    ex = {k: v for k, v in cfg["experiment"].items() if k != "robustness_models"}
+    cfg = {**cfg, "blockcv": {**cfg["blockcv"], "auto_block_size": False, "block_sizes_m": [100, 200, 300],
+                              "primary_block_m": 100}, "experiment": ex}
 
     def models_by_block(c):
         sp = [s for s in specs_from_config(c, "full") if s.purge_m == 0]
@@ -179,8 +186,10 @@ def test_fill_gaps_only_fills_untouched_same_class_gaps(cfg):
     assert (data.fill_gaps(cells, raw, off)[0].measured == 1).all()
 
 
-def test_filled_cells_train_but_are_never_scored(cfg):
+@pytest.mark.parametrize("score_filled", [False, True])
+def test_filled_cells_are_scored_only_with_score_filled(cfg, score_filled):
     from siemreap.nested_cv import RunSpec, run_fold
+    cfg = {**cfg, "depth": {**cfg["depth"], "score_filled": score_filled}}
     c = synthetic_cells(40)
     c["measured"] = np.where(c.cell % 3 == 1, 0, 1)  # every third cell plays a filled cell
     bh = sorted(c.BH_Code.unique())
@@ -188,9 +197,30 @@ def test_filled_cells_train_but_are_never_scored(cfg):
                           "block_size_m": 100}).set_index("BH_Code")
     res = run_fold(c, folds, RunSpec("A", 100, "DEPTH_PRIOR"), 1, cfg, "full")
     test_bh = set(folds.index[folds.fold == 1])
-    expect = c[c.BH_Code.isin(test_bh) & (c.measured == 1)]
+    expect = c[c.BH_Code.isin(test_bh) & ((c.measured == 1) | score_filled)]
     assert len(res["predictions"]) == len(expect)
+    assert (res["predictions"].measured == 0).any() == score_filled
     assert res["info"]["n_train_filled_cells"] > 0
+
+
+def test_filled_weight_is_tuned_and_changes_training(cfg):
+    from siemreap.nested_cv import RunSpec, run_fold
+    cfg = {**cfg, "depth": {**cfg["depth"], "score_filled": True},
+           "experiment": {**cfg["experiment"], "filled_weights": [0.25, 1.0]}}
+    c = synthetic_cells(40)
+    c["measured"] = np.where(c.cell % 3 == 1, 0, 1)
+    bh = sorted(c.BH_Code.unique())
+    folds = pd.DataFrame({"BH_Code": bh, "fold": [i % 5 + 1 for i in range(len(bh))], "role": "cv",
+                          "block_size_m": 100}).set_index("BH_Code")
+    res = run_fold(c, folds, RunSpec("A", 100, "XGB"), 1, cfg, "smoke", n_trials=3)
+    assert res["info"]["best_params"]["filled_weight"] in (0.25, 1.0)
+    p = {"n_estimators": 30, "learning_rate": 0.1, "max_depth": 3, "min_child_weight": 1.0, "subsample": 1.0,
+         "colsample_bynode": 1.0, "reg_lambda": 1.0, "gamma": 0.0, "class_weight": "none"}
+    X, y = c[["UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m"]].values, c.y.values
+    w = np.where(c.measured == 1, 1.0, 0.25)
+    a = build("XGB", p, cfg, seed=1).fit(X, y).predict_proba(X[:20])
+    b = build("XGB", p, cfg, seed=1).fit(X, y, sample_weight=w).predict_proba(X[:20])
+    assert not np.allclose(a, b)
 
 
 # ------------------------------------------------------------- 5-class target ----

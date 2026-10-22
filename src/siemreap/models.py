@@ -32,13 +32,13 @@ class RFModel(ClassifierMixin, BaseEstimator):
     def __init__(self, params=None, seed=0, n_jobs=1, n_classes=2):
         self.params, self.seed, self.n_jobs, self.n_classes = params, seed, n_jobs, n_classes
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         from sklearn.ensemble import RandomForestClassifier
 
         p = dict(self.params)
         cw = p.pop("class_weight", "none")
         self.model_ = RandomForestClassifier(**p, class_weight=None if cw == "none" else cw, bootstrap=True,
-                                             random_state=self.seed, n_jobs=self.n_jobs).fit(X, y)
+                                             random_state=self.seed, n_jobs=self.n_jobs).fit(X, y, sample_weight=sample_weight)
         self.classes_ = self.model_.classes_
         return self
 
@@ -53,13 +53,15 @@ class XGBModel(ClassifierMixin, BaseEstimator):
     def __init__(self, params=None, seed=0, n_jobs=1, n_classes=2):
         self.params, self.seed, self.n_jobs, self.n_classes = params, seed, n_jobs, n_classes
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         from xgboost import XGBClassifier
 
         p = dict(self.params)
         cw = p.pop("class_weight", "none")
         y = np.asarray(y)
         w = _balanced(y) if cw == "balanced" else None
+        if sample_weight is not None:
+            w = np.asarray(sample_weight, float) * (w if w is not None else 1.0)
         # XGBoost needs labels 0..m-1: encode the classes present in this training set
         self.present_, yy = np.unique(y, return_inverse=True)
         metric = "logloss" if len(self.present_) <= 2 else "mlogloss"
@@ -80,7 +82,7 @@ class MLPModel(ClassifierMixin, BaseEstimator):
     def __init__(self, params=None, seed=0, n_jobs=1, n_classes=2):
         self.params, self.seed, self.n_jobs, self.n_classes = params, seed, n_jobs, n_classes
 
-    def fit(self, X, y):
+    def fit(self, X, y, sample_weight=None):
         from sklearn.neural_network import MLPClassifier
         from sklearn.preprocessing import StandardScaler
 
@@ -90,6 +92,8 @@ class MLPModel(ClassifierMixin, BaseEstimator):
         self.scaler_ = StandardScaler().fit(X)
         self.model_ = MLPClassifier(hidden_layer_sizes=layers, early_stopping=False, random_state=self.seed, **p)
         w = _balanced(np.asarray(y)) if cw == "balanced" else None
+        if sample_weight is not None:
+            w = np.asarray(sample_weight, float) * (w if w is not None else 1.0)
         self.model_.fit(self.scaler_.transform(X), y, sample_weight=w)
         self.classes_ = self.model_.classes_
         return self
@@ -175,12 +179,13 @@ class DepthPrior(ClassifierMixin, BaseEstimator):
     def __init__(self, slice_m=1.5, bottom_m=15.0, n_classes=2):
         self.slice_m, self.bottom_m, self.n_classes = slice_m, bottom_m, n_classes
 
-    def fit(self, depth_top, y):
+    def fit(self, depth_top, y, sample_weight=None):
         s = np.floor(np.asarray(depth_top) / self.slice_m).astype(int)
         y = np.asarray(y)
         if self.n_classes == 2:
-            self.overall_ = float(y.mean())
-            self.share_ = {int(k): float(y[s == k].mean()) for k in np.unique(s)}
+            w = np.ones(len(y)) if sample_weight is None else np.asarray(sample_weight, float)
+            self.overall_ = float(np.average(y, weights=w))
+            self.share_ = {int(k): float(np.average(y[s == k], weights=w[s == k])) for k in np.unique(s)}
             return self
         K = self.n_classes
         self.overall_ = np.bincount(y, minlength=K) / len(y)

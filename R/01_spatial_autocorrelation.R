@@ -187,8 +187,28 @@ summary <- list(
                "the block-size rule uses the median per-slice practical range (r_tilde).")
 )
 summary$r_tilde_m <- summary$median_practical_range_by_slice_m
+ok_bcv <- bcv[!is.na(bcv$range_parameter_m), ]
+summary$blockcv_suggested_block_size_m <- if (nrow(ok_bcv)) round(stats::median(ok_bcv$range_parameter_m)) else NA
 jsonlite::write_json(summary, file.path(agg, "spatial_autocorrelation_summary.json"), auto_unbox = TRUE,
                      pretty = TRUE, digits = 6)
+
+# ---- block size (auto_block_size): blockCV's own suggestion ----------------------------
+# cv_spatial_autocor returns, for each slice, the range it recommends as block size; with
+# several layers blockCV uses "the median of all calculated ranges" (Valavi et al. 2019).
+if (isTRUE(st$blockcv$auto_block_size)) {
+  if (nrow(ok_bcv) == 0) stop("blockCV cv_spatial_autocor failed for every slice; see blockcv_spatial_autocor_by_slice.csv")
+  fdir <- file.path(root, st$files$folds_dir)
+  dir.create(fdir, recursive = TRUE, showWarnings = FALSE)
+  decision <- list(
+    block_size_m = round(stats::median(ok_bcv$range_parameter_m)),
+    method = "median of blockCV::cv_spatial_autocor ranges of the Clay indicator over 1.5 m depth slices",
+    slices_used = nrow(ok_bcv), slices_failed = nrow(bcv) - nrow(ok_bcv),
+    ranges_m = setNames(as.list(round(ok_bcv$range_parameter_m, 1)), ok_bcv$slice),
+    blockcv_version = as.character(utils::packageVersion("blockCV")),
+    automap_version = as.character(utils::packageVersion("automap")))
+  jsonlite::write_json(decision, file.path(fdir, "block_size_decision.json"), auto_unbox = TRUE, pretty = TRUE)
+  cat("\nblockCV block size (median of", nrow(ok_bcv), "slice ranges):", decision$block_size_m, "m\n")
+}
 
 # ---- figures --------------------------------------------------------------------------
 e <- do.call(rbind, emp)
