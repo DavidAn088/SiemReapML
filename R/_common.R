@@ -14,7 +14,7 @@ find_root <- function(start = getwd()) {
 # Settings exported by the preprocessing notebook from the project configuration, so R and
 # Python read one configuration. The binary project writes data/processed/r_settings.json;
 # another configuration names its folder in the SIEMREAP_PROCESSED environment variable
-# (the 5-class notebook sets it; in RStudio: Sys.setenv(SIEMREAP_PROCESSED = "data/processed_5class")).
+# (in RStudio: Sys.setenv(SIEMREAP_PROCESSED = "<folder>")); the default is data/processed.
 read_settings <- function(root) {
   proc <- Sys.getenv("SIEMREAP_PROCESSED", "data/processed")
   f <- file.path(root, proc, "r_settings.json")

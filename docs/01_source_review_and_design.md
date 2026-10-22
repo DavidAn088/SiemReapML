@@ -612,7 +612,9 @@ Two unit tests cover the rule and the measured-only scoring. Because every repor
 
 The training sets grow by roughly 40–50 %, which slows every fit. The GP grows fastest, because its cost rises with the cube of the training size. The whole experiment (50 runs × 5 outer folds) is estimated at roughly 1.5–2.5 days on one 4-core PC. The MLP in Scenario B is the largest and least certain part. Notebook 03 is checkpointed. It can run the 100 m primary block first (`RUN_BLOCKS = [100]`), or be split across two computers by block size.
 
-## 11. A second target: 5 soil classes from USCS and SPT-N (2026-10-20)
+## 11. A second target: 5 soil classes from USCS and SPT-N (2026-10-20; dropped)
+
+**Status: dropped by the student on 2026-10-22, before any result.** The configuration, notebooks and R script were removed from the project; the multiclass support in `src/siemreap` remains but is unused. The section is kept as a record of the design.
 
 This is a separate experiment next to the binary Clay/Sand model, which is unchanged. It follows the geology-guided framework of Khamjan et al. (2026, *Engineering Geology* 371:108880), where a soil class combines the USCS group with strength. The difference is that every model here is validated with spatial block cross-validation instead of a random hold-out. Configuration: `config/project_5class.toml`. Notebooks: `notebooks/5class/11–15`. Outputs: `data/processed_5class/`, `data/folds_5class/` and `outputs_5class/`.
 

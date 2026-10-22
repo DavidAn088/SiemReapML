@@ -225,41 +225,6 @@ def test_filled_weight_is_tuned_and_changes_training(cfg):
 
 # ------------------------------------------------------------- 5-class target ----
 
-@pytest.fixture(scope="module")
-def cfg5():
-    import os
-    old = os.environ.get("SIEMREAP_CONFIG")
-    os.environ["SIEMREAP_CONFIG"] = "project_5class.toml"
-    try:
-        return config.load_config(ROOT)
-    finally:
-        if old is None:
-            os.environ.pop("SIEMREAP_CONFIG")
-        else:
-            os.environ["SIEMREAP_CONFIG"] = old
-
-
-def test_fine_classes_follow_uscs_group_and_spt_n(cfg5):
-    uscs = pd.Series(["CL", "CH", "CL", "CL", "SC", "SM", "SC", "SP", "ML", "CL"])
-    spt = pd.Series([3, 8, 9, 40, 10, 11, 31, 50, 5, np.nan])
-    got = data.fine_class_of(uscs, spt, cfg5)
-    # clay: Soft <=4, Medium stiff <=8, Stiff <=15, Very stiff to hard; sand: Loose <=10, Medium dense <=30, Dense
-    assert got.tolist()[:8] == [0, 1, 2, 3, 4, 5, 6, 6]
-    assert np.isnan(got.iloc[8]) and np.isnan(got.iloc[9])  # ML is outside the map; missing SPT-N
-
-
-def test_merge_rule_joins_small_classes_with_their_smaller_neighbour(cfg5):
-    counts = pd.Series({0: 89, 1: 167, 2: 159, 3: 105, 4: 284, 5: 439, 6: 35})
-    m = data.merge_classes(counts, cfg5)
-    names = [c["name"] for c in m["classes"]]
-    assert names == ["Soft to medium stiff clay", "Stiff clay", "Very stiff to hard clay", "Loose sand",
-                     "Medium dense to dense sand"]
-    assert [c["records"] for c in m["classes"]] == [256, 159, 105, 284, 474]
-    assert m["mapping"] == {0: 0, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 4}
-    # nothing is merged when every class is large enough
-    assert len(data.merge_classes(pd.Series({i: 500 for i in range(7)}), cfg5)["classes"]) == 7
-
-
 @pytest.mark.parametrize("name", ["RF", "XGB", "MLP"])
 def test_multiclass_models_return_all_classes_even_if_one_is_missing(cfg, name):
     rng = np.random.default_rng(0)

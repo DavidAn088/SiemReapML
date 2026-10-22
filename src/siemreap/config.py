@@ -25,7 +25,7 @@ def find_root(start: Path | None = None) -> Path:
 
 def config_name() -> str:
     """Configuration file in config/: project.toml (binary Clay/Sand) unless the
-    SIEMREAP_CONFIG environment variable names another, e.g. project_5class.toml."""
+    SIEMREAP_CONFIG environment variable names another file in config/."""
     return os.environ.get("SIEMREAP_CONFIG", "project.toml").strip() or "project.toml"
 
 

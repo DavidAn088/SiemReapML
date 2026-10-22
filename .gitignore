@@ -20,11 +20,3 @@ outputs/**/checkpoints/
 outputs/**/models/
 outputs/**/trials/
 
-# 5-class project (config/project_5class.toml): same rules for its own folders
-data/processed_5class/
-data/folds_5class/
-outputs_5class/smoke/
-outputs_5class/**/restricted/
-outputs_5class/**/checkpoints/
-outputs_5class/**/models/
-outputs_5class/**/trials/

@@ -107,28 +107,3 @@ Also stop Windows from sleeping during the long run (**Settings → System → P
 
 The `data/` and `outputs/*/restricted/` folders hold borehole records and locations. `.gitignore` keeps them out of git; do not upload them elsewhere.
 
-## The 5-class soil model (notebooks/5class)
-
-This is a separate experiment: 5 soil classes from USCS and SPT-N, validated with spatial block CV. Design report §11 describes it. It uses `config/project_5class.toml`, and every notebook selects that file in its first cell. Its files go to `data/processed_5class/`, `data/folds_5class/` and `outputs_5class/`, so it never touches the binary project.
-
-Run in order, with the same kernel as before:
-
-| Notebook | What it does |
-|---|---|
-| `11_preprocessing_5class` | Samples, classes (with the merge rule), external holdout, R inputs. The last cell runs R: package check, **block size from the blockCV autocorrelation range**, blockCV folds |
-| `12_folds_review_5class` | Shows the ranges and the block size R chose, the folds, the class counts per fold and the inner-fold check |
-| `13_nested_cv_5class` | The long run (resumable). `RUN_MODELS = ["RF", "XGB"]` runs part of it first |
-| `14_results_5class` | Metrics against chance and the depth-only reference, per-class F1, confusion matrices, PR curves, model selection |
-| `15_final_external_3d_5class` | Final model, the one-time external test (with the depth-only reference on the same samples), 3D output for ArcGIS Pro |
-
-If notebook 11 cannot find `Rscript`, open `SiemReapML.Rproj` in RStudio and run:
-```
-Sys.setenv(SIEMREAP_PROCESSED = "data/processed_5class")
-source("R/00_install_packages.R")
-source("R/01_mc_block_size.R")
-source("R/02_blockcv_folds.R")
-```
-To run notebook 13 without the editor open (from the project folder, environment activated):
-```
-jupyter nbconvert --to notebook --execute --inplace --ExecutePreprocessor.timeout=-1 notebooks/5class/13_nested_cv_5class.ipynb
-```
