@@ -77,6 +77,7 @@ The smoke run uses one outer fold, the 100 m blocks, two Optuna trials and a 100
 | `05_final_model_external_3d` | Final model, the one-time external evaluation, and the 3D output for ArcGIS Pro |
 | `06_journal_figures` | Publication figures in the style of Valavi et al. (2019) |
 | `07_explainability` | Explainable AI: held-out permutation importance (single inputs and location vs elevation) and SHAP |
+| `08_thesis_figures` | The student's figure layout: validation layout with purge circles, model comparison, confusion matrix + mean ROC, SHAP and permutation panels of the final model (reads outputs only) |
 
 To keep notebook 03 running without the editor open, run it from a terminal (with the environment activated):
 ```
