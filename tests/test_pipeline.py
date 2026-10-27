@@ -186,6 +186,22 @@ def test_fill_gaps_only_fills_untouched_same_class_gaps(cfg):
     assert (data.fill_gaps(cells, raw, off)[0].measured == 1).all()
 
 
+def test_unclassified_records_block_only_when_asked(cfg):
+    r = [  # ST samples classified, the SS sample between them has no symbol (as in the second external file)
+        ("B1", "P", "Downtown", 0, 0, 15.0, 0.5, 1.00, "CL", "ST", None),   # cell 1 Clay
+        ("B1", "P", "Downtown", 0, 0, 15.0, 1.0, 1.45, None, "SS", None),   # cell 2 (unclassified)
+        ("B1", "P", "Downtown", 0, 0, 15.0, 1.5, 2.00, "CL", "ST", None),   # cell 3 Clay
+    ]
+    raw = raw_records(r)
+    cells, _ = data.discretise(raw, cfg)
+    on = {**cfg, "depth": {**cfg["depth"], "fill_gaps": True}}
+    strict, info = data.fill_gaps(cells, raw, on)
+    assert (strict.measured == 1).all() and info["touched_by_a_record"] == 1
+    relaxed, _ = data.fill_gaps(cells, raw, on, unlabelled_blocks=False)
+    filled = relaxed[relaxed.measured == 0]
+    assert list(filled.cell) == [2] and (filled.y == 1).all()
+
+
 @pytest.mark.parametrize("score_filled", [False, True])
 def test_filled_cells_are_scored_only_with_score_filled(cfg, score_filled):
     from siemreap.nested_cv import RunSpec, run_fold

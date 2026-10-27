@@ -125,7 +125,8 @@ def discretise(df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
     return cells, info
 
 
-def fill_gaps(cells: pd.DataFrame, df: pd.DataFrame, cfg: dict) -> tuple[pd.DataFrame, dict]:
+def fill_gaps(cells: pd.DataFrame, df: pd.DataFrame, cfg: dict,
+              unlabelled_blocks: bool = True) -> tuple[pd.DataFrame, dict]:
     """Fill unsampled cells between two measured cells of the same class (design revision of
     2026-10-13, design report section 10; a deviation from the brief, which forbids labels for
     unknown intervals).
@@ -135,7 +136,11 @@ def fill_gaps(cells: pd.DataFrame, df: pd.DataFrame, cfg: dict) -> tuple[pd.Data
     of its cells (another class, a symbol outside the binary map, a missing symbol, an ignored
     long record). Nothing is filled above the first or below the last measured cell. Every
     cell gets `measured` (1 = from records, 0 = filled); filled cells are for training only and
-    every evaluation uses measured cells."""
+    every evaluation uses measured cells.
+
+    `unlabelled_blocks=False` drops "a missing symbol" from (c): a record without a USCS symbol
+    (e.g. an SS sample that was never classified) no longer stops a gap from being filled. It is
+    used only for the second external test (design report section 13), never for training."""
     dc = cfg["depth"]
     cells = cells.assign(measured=1, filled_between="")
     if not dc.get("fill_gaps", False):
@@ -145,7 +150,8 @@ def fill_gaps(cells: pd.DataFrame, df: pd.DataFrame, cfg: dict) -> tuple[pd.Data
     edges = np.arange(dc["top_m"], dc["bottom_m"] + 1e-9, cell_m)
     tops, bots = edges[:-1], edges[1:]
     touched = {}
-    for code, b in df.groupby("BH_Code", sort=False):
+    blocking = df if unlabelled_blocks else df[df.USCS.notna()]
+    for code, b in blocking.groupby("BH_Code", sort=False):
         f, t = b.Depth_From_m.values, b.Depth_To_m.values
         ov = np.minimum(t[None, :], bots[:, None]) - np.maximum(f[None, :], tops[:, None]) > 1e-9
         touched[code] = set(np.where(ov.any(axis=1))[0].tolist())
