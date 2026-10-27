@@ -78,6 +78,8 @@ The smoke run uses one outer fold, the 100 m blocks, two Optuna trials and a 100
 | `06_journal_figures` | Publication figures in the style of Valavi et al. (2019) |
 | `07_explainability` | Explainable AI: held-out permutation importance (single inputs and location vs elevation) and SHAP |
 | `08_thesis_figures` | The student's figure layout: validation layout with purge circles, model comparison, confusion matrix + mean ROC, SHAP and permutation panels of the final model (reads outputs only) |
+| `09_new_external_test` | Put `External_BHs_SR_Elev.csv` in `data\raw\`, then **Run All once**: the frozen model and the depth-only reference on the 10 new boreholes. Do not re-run notebook 05 before it |
+| `10_map_model_120bh` | Refit of the final model on all 120 Downtown boreholes, for the 3D map only (50 m grid; not evaluated). Output: `outputs/10_map_model/restricted/siemreap_3d_points_120bh_50m.csv` |
 
 To keep notebook 03 running without the editor open, run it from a terminal (with the environment activated):
 ```

@@ -76,6 +76,12 @@ manual_flags = "data/raw/manual_borehole_flags.csv"
 # The supplied blockCV repository (rvalavi/blockCV, version 4.0-1), unzipped.
 blockcv_source = "data/raw/blockCV-master"
 
+[new_external]
+# Second, independent external test (received 2026-10-26, after the V3 model was frozen).
+# Boreholes already in the main CSV are excluded; the rest are evaluated once (notebook 09).
+raw_csv = "data/raw/External_BHs_SR_Elev.csv"
+raw_csv_sha256 = "44dcd35f5bb818abe03d043ee76db5ccca6ea40a3fe4b348239ec9b9468bb126"
+
 [external]
 # External Downtown boreholes reserved before any modelling (brief section 10; D9).
 # Selection uses coordinates and sampling metadata only, never class values.

@@ -708,3 +708,11 @@ Unchanged:
 * the models (RF, XGB, MLP, GWRF, GWXGB, depth-only reference);
 * the nested CV, the selection rule (applied to all test cells, with the measured-only selection printed for comparison);
 * the external holdout (same rule and lock).
+
+## 13. Second external test and the map model (2026-10-27)
+
+A second borehole file (`External_BHs_SR_Elev.csv`) arrived after the final model was frozen (notebook 05). Boreholes already in the main CSV are removed, which leaves 10 new Downtown boreholes, mostly in Sala Kamreuk. Their labels were not looked at before the evaluation.
+
+1. **Notebook 09: one-time test.** The frozen final model (its SHA-256 is checked) and the depth-only reference are scored once on the new boreholes, on all cells and on measured cells only, overall and by distance to the nearest training borehole (< 300, 300–700, 700–1000, > 1000 m). Nothing is refitted or tuned. The record is stored with the model's SHA-256, and re-running with another model is refused unless the reason is reported.
+2. **Notebook 10: map model.** For the 3D map only, the frozen model type, hyper-parameters and threshold are refitted on all 120 Downtown boreholes (development + first external holdout). This model is **not evaluated**: its expected skill is the one estimated by the nested CV and the two external tests. The grid is 50 m, and the reliability zones are measured from the 120 boreholes.
+3. The new boreholes are **not** added to the map model, so that notebook 09 stays an independent test.

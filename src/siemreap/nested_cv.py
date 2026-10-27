@@ -325,3 +325,14 @@ def fit_final(cells: pd.DataFrame, cfg: dict, scenario: str, model_name: str, bl
             "n_train_filled_cells": int((~meas).sum()),
             "top_elevation_range": (float(train.Top_Elevation_m.min()), float(train.Top_Elevation_m.max())),
             "train_bh_xy": train.drop_duplicates("BH_Code")[["UTM_Easting_m", "UTM_Northing_m"]].values}
+
+
+def refit(train: pd.DataFrame, cfg: dict, model_name: str, params: dict, seed_tag: str, mode: str = "full"):
+    """Refit a model with fixed hyperparameters (no tuning) on `train`, with the filled-cell
+    weight in `params`; used for the production model of the 3D map (notebook 10)."""
+    K = n_classes(cfg)
+    meas = _measured_mask(train)
+    model, _ = _fit_predict(model_name, params, cfg, seed_for(cfg, seed_tag), mode == "smoke",
+                            train[FEATURES].values, train.y.values, train[FEATURES].values[:1],
+                            train.depth_top_m.values, train.depth_top_m.values[:1], K, _weights(meas, params))
+    return model

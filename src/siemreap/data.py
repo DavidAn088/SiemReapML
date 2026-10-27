@@ -170,7 +170,8 @@ def fill_gaps(cells: pd.DataFrame, df: pd.DataFrame, cfg: dict) -> tuple[pd.Data
                                 "Top_Elevation_m": a["Ground_Elevation_m"] - tops[j], "coverage": 0.0,
                                 "csv_lines": "", "sample_types": "fill", "from_long_record": False,
                                 "measured": 0, "filled_between": f"{a['csv_lines']}/{b['csv_lines']}"})
-    out = pd.concat([cells, pd.DataFrame(new, columns=cells.columns)], ignore_index=True)
+    # concat only when something was filled: an empty frame would turn every column into object dtype
+    out = pd.concat([cells, pd.DataFrame(new, columns=cells.columns)], ignore_index=True) if new else cells.copy()
     out = out.sort_values(["BH_Code", "cell"]).reset_index(drop=True)
     info = {"fill_gaps": True, "fill_max_gap_m": dc["fill_max_gap_m"], **n, "filled_cells": len(new),
             "measured_cells": int(len(cells))}
@@ -317,6 +318,38 @@ def clay_classes(cfg: dict) -> list[int]:
     if target_kind(cfg) == "binary":
         return [1]
     return [i for i, c in enumerate(class_info(cfg)["classes"]) if c["group"] == "clay"]
+
+
+# ------------------------------------------------------- second external test ----
+
+def load_new_external(cfg: dict) -> tuple[pd.DataFrame, dict]:
+    """The second external borehole file ([new_external]), checked against its SHA-256.
+    Boreholes already in the main CSV (same BH_Code) are removed, because they are training
+    data; the remaining ones must lie inside the Downtown polygon. Returns the records (same
+    columns as `load_raw`) and a summary that contains no class values."""
+    import shapely
+
+    from .geo import load_polygon
+
+    ne = cfg["new_external"]
+    p = cfg["_root"] / ne["raw_csv"]
+    got = sha256_file(p)
+    if got != ne["raw_csv_sha256"]:
+        raise ValueError(f"Checksum of {p.name} is {got}, expected {ne['raw_csv_sha256']}")
+    df = pd.read_csv(p, encoding="utf-8-sig", low_memory=False)
+    df.insert(0, "csv_line", np.arange(len(df)) + 2)
+    main = load_raw(cfg)
+    dup = sorted(set(df.BH_Code) & set(main.BH_Code))
+    df = df[~df.BH_Code.isin(dup)].copy()
+    poly = load_polygon(cfg, "downtown_shp")
+    bh = df.groupby("BH_Code").agg(E=("UTM_Easting_m", "first"), N=("UTM_Northing_m", "first"))
+    outside = sorted(bh.index[~shapely.contains_xy(poly, bh.E.values, bh.N.values)])
+    if outside:
+        raise ValueError(f"{len(outside)} new external borehole(s) lie outside the Downtown polygon: {outside}")
+    df["Region"] = cfg["regions"]["downtown"]
+    info = {"file_sha256": got, "boreholes_in_file": int(len(bh) + len(dup)),
+            "already_in_main_csv_removed": len(dup), "new_boreholes": int(len(bh)), "records": int(len(df))}
+    return df, info
 
 
 # --------------------------------------------------------------- manual flags ----
