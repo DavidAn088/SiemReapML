@@ -27,6 +27,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+# harmless notice from tqdm when the Jupyter widget package is missing (V4 uses text progress bars)
+warnings.filterwarnings("ignore", message="IProgress not found")
+
 FEATURES = ["UTM_Easting_m", "UTM_Northing_m", "Top_Elevation_m"]
 DEPTH_ONLY = "DEPTH_ONLY"
 
@@ -544,7 +547,13 @@ def inner_predictions(name, params, train, groups, seed, S) -> np.ndarray:
     return p
 
 
-def tune(name, train, groups, seed, S) -> dict:
+def n_trials(name: str, S: dict) -> int:
+    if name == DEPTH_ONLY:
+        return 1
+    return S["quick"]["n_trials"] if S["run"]["quick"] else S["cv"]["n_trials"][name]
+
+
+def tune(name, train, groups, seed, S, on_trial=None) -> dict:
     """Optuna (TPE) chooses the hyperparameters and the filled-cell weight with the highest
     inner Macro-F1; for every trial the threshold is the best one on the inner predictions."""
     import optuna
@@ -553,6 +562,8 @@ def tune(name, train, groups, seed, S) -> dict:
     y, grid = train.y.values, threshold_grid(S)
     if name == DEPTH_ONLY:
         thr, f1 = best_threshold(y, inner_predictions(name, {}, train, groups, seed, S), grid)
+        if on_trial:
+            on_trial()
         return {"params": {}, "threshold": thr, "inner_macro_f1": f1, "trials": pd.DataFrame([{"value": f1}])}
     has_filled = (train.measured == 0).any()
 
@@ -564,21 +575,21 @@ def tune(name, train, groups, seed, S) -> dict:
         trial.set_user_attr("threshold", t)
         return f
 
-    n = S["quick"]["n_trials"] if S["run"]["quick"] else S["cv"]["n_trials"][name]
     study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=seed))
-    study.optimize(objective, n_trials=n)
+    study.optimize(objective, n_trials=n_trials(name, S),
+                   callbacks=[lambda study, trial: on_trial()] if on_trial else None)
     return {"params": study.best_params, "threshold": study.best_trial.user_attrs["threshold"],
             "inner_macro_f1": study.best_value,
             "trials": study.trials_dataframe(attrs=("number", "value", "params", "user_attrs", "duration"))}
 
 
-def run_fold(name, cells, folds, k, purge_m, S, tag) -> dict:
+def run_fold(name, cells, folds, k, purge_m, S, tag, on_trial=None) -> dict:
     """One outer fold: tune on the training boreholes, refit, predict the test fold."""
     t0 = time.time()
     train, test = outer_split(cells, folds, k, purge_m)
     groups = train.BH_Code.map(folds).values          # inner groups = the other outer folds
     seed = seed_of(S, tag, k)
-    best = tune(name, train, groups, seed, S)
+    best = tune(name, train, groups, seed, S, on_trial)
     model = make_model(name, best["params"], seed, S).fit(train, fill_weights(train, best["params"]))
     p = model.p_clay(test)
     bh_tr = train.groupby("BH_Code")[["UTM_Easting_m", "UTM_Northing_m"]].first()
