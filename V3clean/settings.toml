@@ -1,0 +1,138 @@
+# V3-clean settings: the V3 experiment, written simply. Every value here is V3's value.
+# Change nothing here if you want the same results as V3.
+
+[run]
+# quick = true runs a tiny version (1 outer fold, 2 Optuna trials, small models), the same
+# reduced run as V3's "smoke" mode. Quick results are NEVER thesis results.
+quick = false
+seed = 20261012                   # V3's global seed
+n_jobs = 4                        # threads per model fit (V3: 4)
+
+[v3]
+# The V3 project folder. V3-clean READS from it (never writes):
+#   data/folds/              blockCV folds of V3 (not re-run: R now has blockCV 4.0-2, V3 used 4.0-1)
+#   data/processed/          V3's external-holdout list and cells (for the cell check)
+#   outputs/                 V3's results (for notebook 10, the comparison)
+folder = "E:/DavidAn/SiemReapML_V3_fresh_start/SiemReapML"
+
+[files]
+boreholes_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+boreholes_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+new_external_csv = "data/raw/External_BHs_SR_Elev.csv"
+new_external_sha256 = "44dcd35f5bb818abe03d043ee76db5ccca6ea40a3fe4b348239ec9b9468bb126"
+downtown_shp = "data/raw/gis/downtown/downtown.shp"
+dem = "data/raw/gis/dem_downtown"
+manual_flags = "data/raw/manual_borehole_flags.csv"
+epsg = 32648
+
+[labels]
+clay = ["CL", "CH"]               # Clay = 1
+sand = ["SC", "SM", "SP"]         # Sand = 0
+region_downtown = "Downtown"
+region_ring = "Downtown_5km"
+
+[cells]
+top_m = 0.0
+bottom_m = 15.0
+cell_m = 0.5
+min_coverage = 0.5
+max_sample_length_m = 3.0
+fill_max_gap_m = 3.0
+# V3 rule: any record inside a gap (also an unclassified SS sample) stops the fill.
+unclassified_blocks_fill = true
+
+[blockcv]
+k = 5
+multiples = [1, 2, 3]             # V3: 106 m, round(2 x 106) = 212 m, round(3 x 106) = 318 m
+
+[cv]
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]
+sensitivity_models = ["RF", "XGB"]
+purge_multiples = [1, 2]
+purge_models = ["RF", "XGB"]
+filled_weights = [0.25, 0.5, 1.0]
+threshold_grid = [0.05, 0.95, 0.01]
+
+[cv.n_trials]
+RF = 50
+XGB = 50
+MLP = 50
+GWRF = 30
+GWXGB = 30
+
+[inner_cv]
+# V3's check of the inner folds; if a group fails, V3's backup inner folds (made by blockCV) are used.
+min_boreholes = 8
+min_cells = 100
+min_class_share = 0.20
+
+[gw]
+min_boreholes = 5
+min_cells_per_class = 20
+max_neighbours = 80
+local_rf_trees = 100
+local_xgb_rounds_max = 300
+
+[map]
+spacing_m = 50.0
+zone_edges_m = [100.0, 300.0]
+chunk_rows = 500000
+
+[quick]
+# Same as V3's [smoke]
+outer_folds = [1]
+n_trials = 2
+rf_trees = 50
+mlp_max_iter = 200
+map_spacing_m = 100.0
+
+# ------------------------------------------------------------ Optuna search spaces (V3) ----
+[space.RF]
+n_estimators = { type = "int", low = 200, high = 800, step = 100 }
+max_depth = { type = "int", low = 3, high = 30 }
+min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+max_samples = { type = "float", low = 0.5, high = 1.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.XGB]
+n_estimators = { type = "int", low = 100, high = 800, step = 50 }
+learning_rate = { type = "float", low = 0.01, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 10 }
+min_child_weight = { type = "float", low = 1.0, high = 30.0, log = true }
+subsample = { type = "float", low = 0.5, high = 1.0 }
+colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+gamma = { type = "float", low = 0.0, high = 5.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.MLP]
+n_layers = { type = "int", low = 1, high = 3 }
+n_units = { type = "int", low = 8, high = 128, log = true }
+activation = { type = "categorical", choices = ["relu", "tanh"] }
+alpha = { type = "float", low = 1e-6, high = 0.1, log = true }
+learning_rate_init = { type = "float", low = 1e-4, high = 1e-2, log = true }
+batch_size = { type = "categorical", choices = [32, 64, 128] }
+max_iter = { type = "int", low = 200, high = 1000, step = 100 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.GWRF]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+max_depth = { type = "int", low = 3, high = 20 }
+min_samples_leaf = { type = "int", low = 1, high = 30, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.GWXGB]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+n_estimators = { type = "int", low = 50, high = 300, step = 50 }
+learning_rate = { type = "float", low = 0.03, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 6 }
+min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
+subsample = { type = "float", low = 0.6, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
