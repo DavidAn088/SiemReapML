@@ -30,19 +30,26 @@ for (z in list.files(file.path("data", "raw"), pattern = "^blockCV.*zip", ignore
   cat("Found", basename(z), "-> folder inside:", top, "\n")
   if (identical(top, paste0("blockCV-", commit))) zip_file <- z
 }
-marker <- file.path(lib, "blockCV", "INSTALLED_FROM_GITHUB_COMMIT")   # written after a ZIP install
 
 test_source <- Sys.getenv("V4_BLOCKCV_SOURCE")   # software tests only: a git clone of the same commit
 
+# Read the installed version and commit WITHOUT loading blockCV: on Windows a loaded package
+# locks its DLL, and then it cannot be replaced.
+installed_version <- function() {
+  if (!nzchar(system.file(package = "blockCV", lib.loc = lib))) return(NA)
+  packageDescription("blockCV", lib.loc = lib)$Version
+}
 installed_commit <- function() {
-  if (!requireNamespace("blockCV", quietly = TRUE)) return(NA)
-  d <- packageDescription("blockCV")
+  if (is.na(installed_version())) return(NA)
+  d <- packageDescription("blockCV", lib.loc = lib)
   if (!is.null(d$RemoteSha)) return(d$RemoteSha)
-  m <- file.path(find.package("blockCV"), "INSTALLED_FROM_GITHUB_COMMIT")
+  m <- file.path(system.file(package = "blockCV", lib.loc = lib), "INSTALLED_FROM_GITHUB_COMMIT")
   if (file.exists(m)) return(trimws(readLines(m, warn = FALSE)[1]))
   if (nzchar(test_source)) return(commit)
   NA
 }
+want_desc <- sub("\\.(\\d+)$", "-\\1", want_version)      # "4.0.2" is written "4.0-2" in DESCRIPTION
+version_ok <- function() isTRUE(package_version(installed_version()) == package_version(want_desc))
 
 needed <- c("sf", "terra", "ggplot2", "cowplot", "automap", "Rcpp")
 missing <- setdiff(needed, rownames(installed.packages()))
@@ -51,19 +58,27 @@ if (length(missing)) {
   install.packages(missing, lib = lib, repos = "https://cloud.r-project.org")
 }
 
-if (identical(installed_commit(), commit) && as.character(packageVersion("blockCV")) == want_version) {
+if (version_ok() && identical(installed_commit(), commit)) {
   cat("blockCV", want_version, "from", repo, "commit", commit, "is already installed.\n")
 } else if (nzchar(test_source)) {
   cat("TEST INSTALL from the local clone", test_source, "\n")
   install.packages(test_source, repos = NULL, type = "source", lib = lib)
 } else if (nzchar(zip_file)) {
   cat("Installing blockCV from", zip_file, "\n")
+  unlink(list.files(lib, pattern = "^00LOCK", full.names = TRUE), recursive = TRUE)   # left over from a failed install
   tmp <- file.path(tempdir(), "blockcv_zip")
   unlink(tmp, recursive = TRUE)
   unzip(zip_file, exdir = tmp)
   src <- list.dirs(tmp, recursive = FALSE)[1]                 # blockCV-<commit>/
   install.packages(src, repos = NULL, type = "source", lib = lib)
-  writeLines(commit, file.path(lib, "blockCV", "INSTALLED_FROM_GITHUB_COMMIT"))
+  if (version_ok()) {                                          # record the commit only after a successful install
+    writeLines(commit, file.path(system.file(package = "blockCV", lib.loc = lib), "INSTALLED_FROM_GITHUB_COMMIT"))
+  } else {
+    stop("\n\nblockCV could not be installed (installed version: ", installed_version(), ").\n",
+         "Close every other R / RStudio window and every other notebook that uses R, restart this\n",
+         "notebook's kernel (Kernel -> Restart) and run it again. If it still fails, delete the folder\n",
+         "  ", file.path(lib, "blockCV"), "\nby hand and run again.")
+  }
 } else if (requireNamespace("remotes", quietly = TRUE)) {
   remotes::install_github(paste0(repo, "@", commit), lib = lib, upgrade = "never", dependencies = FALSE)
 } else {
@@ -73,7 +88,7 @@ if (identical(installed_commit(), commit) && as.character(packageVersion("blockC
        "  3. Run this cell again.\n")
 }
 
-library(blockCV)
-cat("blockCV version:", as.character(packageVersion("blockCV")), "\n")
+cat("blockCV version:", installed_version(), "\n")
 cat("GitHub commit  :", installed_commit(), "\n")
-stopifnot(as.character(packageVersion("blockCV")) == want_version, identical(installed_commit(), commit))
+stopifnot(version_ok(), identical(installed_commit(), commit))
+library(blockCV)
