@@ -20,6 +20,17 @@ or **DIFFERENT** for each one.
 
 **Left out:** the depth-only reference (V3's saved results still contain it).
 
+## Final model: rule or override
+Notebook 05 uses the model chosen by V3's 1-SE rule (GWXGB) **unless** `settings.toml → [final] override_model`
+is set (now: `"XGB"`, with the reason in `override_reason`). With an override:
+* the CV results (notebooks 01-04, 06) do not change;
+* the final model, the external tests (07), the map (08) and the figures (09) use the override model, and the
+  rule's model is shown beside it everywhere (marked † in the figures; the final model is marked *);
+* notebook 10 reports these items as **CHANGED ON PURPOSE** and checks everything else is identical to V3;
+* the thesis must report the rule's choice, the override and its reason; the override model's external
+  scores were obtained after V3's results were known.
+Set `override_model = ""` to go back to the rule's choice (then everything is identical to V3).
+
 ## How to run (school PC)
 1. Copy V3's `data\raw` files into `V3clean\data\raw` (see `data/raw/README.md`).
 2. Check `settings.toml → [v3] folder` points to your V3 project folder.
@@ -42,6 +53,8 @@ or **DIFFERENT** for each one.
 PDF (vector) + PNG (600 dpi); widths 90 mm (one column) or 190 mm (two columns); 7-8 pt text; panel
 labels (a), (b), (c); one colour per model throughout. Borehole names are hidden (BH-A, BH-B, BH-C).
 Figures that show borehole locations (Figs. 1, 3, 11) are saved in `private/`.
+Fig. 9b shows each external borehole (accuracy vs distance to the nearest training borehole) and Fig. S2
+the soil columns of all 21 external boreholes (EX-01 ... EX-21), measured vs the final and the comparison model.
 In Fig. 3b the 106 m blocks are too small to see at the scale of Downtown; the points carry the fold colours.
 
 ## Why "identical" is possible, and what could break it

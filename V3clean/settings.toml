@@ -41,6 +41,12 @@ fill_max_gap_m = 3.0
 # V3 rule: any record inside a gap (also an unclassified SS sample) stops the fill.
 unclassified_blocks_fill = true
 
+[final]
+# The final model is the one chosen by V3's 1-SE rule (notebook 04), unless override_model is set.
+# An override must have a reason, written here and reported in the thesis.
+override_model = "XGB"
+override_reason = "Highest mean outer-fold Macro-F1 (0.644) and lowest Brier score; within one SE of the rule's choice (GWXGB), so not worse; a single global model is simpler to apply and to explain."
+
 [blockcv]
 k = 5
 multiples = [1, 2, 3]             # V3: 106 m, round(2 x 106) = 212 m, round(3 x 106) = 318 m
