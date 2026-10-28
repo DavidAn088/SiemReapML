@@ -1,8 +1,12 @@
 # Install blockCV exactly as published on GitHub (rvalavi/blockCV), pinned to one commit.
 # Nothing in blockCV is changed or re-written.
 #
-# Needs internet. On Windows it also needs Rtools that matches your R version
-# (blockCV contains C++ code). Notebook 02 runs this script for you.
+# Two ways, tried in this order:
+#   1. from the GitHub ZIP of that commit, saved in data/raw/ (works without internet in R):
+#      download https://github.com/rvalavi/blockCV/archive/<commit>.zip in a browser
+#   2. from GitHub with the 'remotes' package (needs internet in R)
+# On Windows it also needs Rtools that matches your R version (blockCV contains C++ code).
+# Notebook 02 runs this script for you.
 
 # Install into a writable library (R's own folder is often read-only on Windows).
 lib <- .libPaths()[1]
@@ -18,30 +22,52 @@ s <- jsonlite::fromJSON("data/r_settings.json")
 repo <- s$blockcv$github_repo
 commit <- s$blockcv$github_commit
 want_version <- s$blockcv$version
+zip_file <- file.path("data", "raw", paste0("blockCV-", commit, ".zip"))
+marker <- file.path(lib, "blockCV", "INSTALLED_FROM_GITHUB_COMMIT")   # written after a ZIP install
 
-test_source <- Sys.getenv("V4_BLOCKCV_SOURCE")   # software tests only (no internet): a git clone of the same commit
+test_source <- Sys.getenv("V4_BLOCKCV_SOURCE")   # software tests only: a git clone of the same commit
 
-installed_ok <- function() {
-  if (!requireNamespace("blockCV", quietly = TRUE)) return(FALSE)
+installed_commit <- function() {
+  if (!requireNamespace("blockCV", quietly = TRUE)) return(NA)
   d <- packageDescription("blockCV")
-  same_commit <- identical(d$RemoteSha, commit) || nzchar(test_source)
-  identical(as.character(packageVersion("blockCV")), want_version) && same_commit
+  if (!is.null(d$RemoteSha)) return(d$RemoteSha)
+  m <- file.path(find.package("blockCV"), "INSTALLED_FROM_GITHUB_COMMIT")
+  if (file.exists(m)) return(trimws(readLines(m, warn = FALSE)[1]))
+  if (nzchar(test_source)) return(commit)
+  NA
 }
 
-if (installed_ok()) {
+needed <- c("sf", "terra", "ggplot2", "cowplot", "automap", "Rcpp")
+missing <- setdiff(needed, rownames(installed.packages()))
+if (length(missing)) {
+  cat("Installing the packages blockCV needs:", missing, "\n")
+  install.packages(missing, lib = lib, repos = "https://cloud.r-project.org")
+}
+
+if (identical(installed_commit(), commit) && as.character(packageVersion("blockCV")) == want_version) {
   cat("blockCV", want_version, "from", repo, "commit", commit, "is already installed.\n")
 } else if (nzchar(test_source)) {
   cat("TEST INSTALL from the local clone", test_source, "\n")
   install.packages(test_source, repos = NULL, type = "source", lib = lib)
+} else if (file.exists(zip_file)) {
+  cat("Installing blockCV from", zip_file, "\n")
+  tmp <- file.path(tempdir(), "blockcv_zip")
+  unlink(tmp, recursive = TRUE)
+  unzip(zip_file, exdir = tmp)
+  src <- list.dirs(tmp, recursive = FALSE)[1]                 # blockCV-<commit>/
+  install.packages(src, repos = NULL, type = "source", lib = lib)
+  writeLines(commit, file.path(lib, "blockCV", "INSTALLED_FROM_GITHUB_COMMIT"))
+} else if (requireNamespace("remotes", quietly = TRUE)) {
+  remotes::install_github(paste0(repo, "@", commit), lib = lib, upgrade = "never", dependencies = FALSE)
 } else {
-  cran <- c("sf", "terra", "ggplot2", "cowplot", "automap", "Rcpp", "jsonlite", "remotes")
-  missing <- setdiff(cran, rownames(installed.packages()))
-  if (length(missing)) install.packages(missing, lib = lib, repos = "https://cloud.r-project.org")
-  remotes::install_github(paste0(repo, "@", commit), lib = lib, upgrade = "never", dependencies = TRUE)
+  stop("\n\nR cannot download blockCV on this PC. Do this once:\n",
+       "  1. In your web browser open\n     https://github.com/", repo, "/archive/", commit, ".zip\n",
+       "  2. Save the file (do NOT unzip it) as\n     ", normalizePath(file.path("data", "raw"), mustWork = FALSE),
+       "\\blockCV-", commit, ".zip\n",
+       "  3. Run this cell again.\n")
 }
 
 library(blockCV)
-d <- packageDescription("blockCV")
 cat("blockCV version:", as.character(packageVersion("blockCV")), "\n")
-cat("GitHub commit  :", if (is.null(d$RemoteSha)) "(local test install)" else d$RemoteSha, "\n")
-stopifnot(as.character(packageVersion("blockCV")) == want_version)
+cat("GitHub commit  :", installed_commit(), "\n")
+stopifnot(as.character(packageVersion("blockCV")) == want_version, identical(installed_commit(), commit))

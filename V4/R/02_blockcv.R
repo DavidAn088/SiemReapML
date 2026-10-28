@@ -12,6 +12,11 @@
 #         <out>/... tables and figures; <out>/private/... maps with borehole locations
 
 suppressPackageStartupMessages({ library(sf); library(blockCV); library(ggplot2) })
+installed_commit <- function() {        # GitHub commit of the installed blockCV
+  d <- packageDescription("blockCV")
+  m <- file.path(find.package("blockCV"), "INSTALLED_FROM_GITHUB_COMMIT")
+  if (!is.null(d$RemoteSha)) d$RemoteSha else if (file.exists(m)) readLines(m, warn = FALSE)[1] else "unknown"
+}
 s <- jsonlite::fromJSON("data/r_settings.json")
 b <- s$blockcv
 dir.create(s$folds_dir, recursive = TRUE, showWarnings = FALSE)
@@ -81,7 +86,7 @@ jsonlite::write_json(list(
   range_by_slice_m = as.list(setNames(main$result$range_table$range, main$result$range_table$layers)),
   multiples = b$multiples,
   blockcv_version = as.character(packageVersion("blockCV")),
-  blockcv_commit = if (is.null(packageDescription("blockCV")$RemoteSha)) "local test install" else packageDescription("blockCV")$RemoteSha,
+  blockcv_commit = installed_commit(),
   automap_version = as.character(packageVersion("automap"))),
   file.path(s$folds_dir, "block_size.json"), auto_unbox = TRUE, pretty = TRUE, digits = NA)
 cat("\nDone: folds written to", s$folds_dir, "\n")
