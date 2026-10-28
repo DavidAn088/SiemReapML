@@ -22,7 +22,14 @@ s <- jsonlite::fromJSON("data/r_settings.json")
 repo <- s$blockcv$github_repo
 commit <- s$blockcv$github_commit
 want_version <- s$blockcv$version
-zip_file <- file.path("data", "raw", paste0("blockCV-", commit, ".zip"))
+# Any blockCV*.zip in data/raw (the browser may rename it, e.g. "blockCV-....zip (1)" or ".zip.zip").
+# The commit is checked from inside the ZIP: GitHub names its top folder blockCV-<commit>.
+zip_file <- ""
+for (z in list.files(file.path("data", "raw"), pattern = "^blockCV.*zip", ignore.case = TRUE, full.names = TRUE)) {
+  top <- unique(sub("/.*", "", unzip(z, list = TRUE)$Name))
+  cat("Found", basename(z), "-> folder inside:", top, "\n")
+  if (identical(top, paste0("blockCV-", commit))) zip_file <- z
+}
 marker <- file.path(lib, "blockCV", "INSTALLED_FROM_GITHUB_COMMIT")   # written after a ZIP install
 
 test_source <- Sys.getenv("V4_BLOCKCV_SOURCE")   # software tests only: a git clone of the same commit
@@ -49,7 +56,7 @@ if (identical(installed_commit(), commit) && as.character(packageVersion("blockC
 } else if (nzchar(test_source)) {
   cat("TEST INSTALL from the local clone", test_source, "\n")
   install.packages(test_source, repos = NULL, type = "source", lib = lib)
-} else if (file.exists(zip_file)) {
+} else if (nzchar(zip_file)) {
   cat("Installing blockCV from", zip_file, "\n")
   tmp <- file.path(tempdir(), "blockcv_zip")
   unlink(tmp, recursive = TRUE)
@@ -60,10 +67,9 @@ if (identical(installed_commit(), commit) && as.character(packageVersion("blockC
 } else if (requireNamespace("remotes", quietly = TRUE)) {
   remotes::install_github(paste0(repo, "@", commit), lib = lib, upgrade = "never", dependencies = FALSE)
 } else {
-  stop("\n\nR cannot download blockCV on this PC. Do this once:\n",
+  stop("\n\nNo blockCV ZIP of commit ", commit, " was found in data/raw, and R cannot download it. Do this once:\n",
        "  1. In your web browser open\n     https://github.com/", repo, "/archive/", commit, ".zip\n",
-       "  2. Save the file (do NOT unzip it) as\n     ", normalizePath(file.path("data", "raw"), mustWork = FALSE),
-       "\\blockCV-", commit, ".zip\n",
+       "  2. Save the file (do NOT unzip it) in the folder\n     ", normalizePath(file.path("data", "raw"), mustWork = FALSE), "\n",
        "  3. Run this cell again.\n")
 }
 
