@@ -272,7 +272,8 @@ distance (Fig. 9b).
 | 2 | 100-300 m | 15.3% |
 | 3 | > 300 m | **81.6%** |
 
-Predicted clay share: **[fill in from notebook 08]** (0.407 with GWXGB). Output: CSV points for ArcGIS Pro
+Predicted clay share: **0.369** with XGB (0.407 with GWXGB); **91.4%** of the 968,400 cells get the same class
+from both models, so the choice of final model changes the map only slightly. Vertical extrapolation: 0.4% of cells. Output: CSV points for ArcGIS Pro
 (*XY Table To Point*, Z field) and a netCDF voxel file.
 
 **Use of the map:** detailed only in zones 1-2; in zone 3 it shows the general depth and area trend.
@@ -356,8 +357,8 @@ and old channels, geological or landform units; McBratney et al., 2003), and bor
 ## 14. Checklist before submission or defence
 
 - [x] Notebooks 05, 07, 09 run with XGB; values copied into this document
-- [ ] Notebook 08 map clay share copied (Section 9)
-- [ ] Notebook 10 ends with "EVERYTHING IDENTICAL TO V3, except the items changed on purpose"
+- [x] Notebook 08 map clay share copied (Section 9)
+- [x] Notebook 10 ends with "EVERYTHING IDENTICAL TO V3, except the items changed on purpose"
 - [ ] Advisor agrees with the override reason
 - [ ] Limitations section written (Section 12)
 - [ ] A lab mate re-runs the notebooks on another PC from the README
