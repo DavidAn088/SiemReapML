@@ -166,8 +166,10 @@ The rule selected **GWXGB**. **XGB** is used as the final model instead. Reason 
 **Report this openly:** the rule's choice, the override and its reason. Because XGB and GWXGB are tied within
 one SE, the choice does not change the conclusions. GWXGB is shown beside XGB in every figure.
 
-Final XGB: tuned on all 109 development boreholes (inner groups = the 5 outer folds), then trained on all of
-them. Hyperparameters and threshold: **[fill in from notebook 05]**.
+Final XGB: tuned on all 109 development boreholes (inner groups = the 5 outer folds; 50 Optuna trials), then
+trained on all of them. Inner-CV Macro-F1 0.662. **Decision threshold 0.58.** Hyperparameters: 250 trees,
+learning rate 0.0238, max depth 3, min child weight 1.71, subsample 0.69, colsample by node 0.97,
+L2 (lambda) 0.113, gamma 3.71, balanced class weights, filled-cell weight 1.0.
 
 ---
 
@@ -214,8 +216,22 @@ Scores fall when the test boreholes are farther from the training boreholes, con
 | B | 0.580 | 0.667 | 0.644 | 0.217 |
 | C | 0.505 | 0.602 | 0.627 | 0.224 |
 
-**XGB** (final model): **[fill in from notebook 07]**. These were obtained **after** GWXGB's external results
-were known; state this in the thesis.
+**XGB** (final model), obtained **after** GWXGB's external results were known (state this in the thesis):
+
+| Test | Macro-F1 | Balanced acc. | ROC-AUC | Brier |
+|---|---|---|---|---|
+| A | 0.589 | 0.596 | 0.672 | 0.245 |
+| B | 0.580 | 0.667 | 0.643 | 0.224 |
+| C | 0.511 | 0.612 | 0.633 | 0.230 |
+
+**Reading:** on the external boreholes XGB and GWXGB are tied (differences of 0.00-0.02 on 84-266 cells),
+which agrees with the 1-SE result. XGB is **not** better externally; the override rests on "not worse" and
+simplicity, not on better external scores. The two models are close because GWXGB's tuned blend weight is
+α = 0.22: its predictions come mostly (78%) from its global XGBoost part.
+
+Per borehole (Fig. 9b), accuracy ranges from 0.14 to 1.00 and does not fall smoothly with distance: with
+21 boreholes, local geology at single boreholes dominates. Describe it as large variation between
+boreholes, not as a trend.
 
 The new boreholes are 195-1,217 m from the nearest training borehole; per-borehole accuracy falls with
 distance (Fig. 9b).
@@ -339,7 +355,8 @@ and old channels, geological or landform units; McBratney et al., 2003), and bor
 
 ## 14. Checklist before submission or defence
 
-- [ ] Notebooks 05-09 run with XGB; all **[fill in]** values copied into this document and the thesis
+- [x] Notebooks 05, 07, 09 run with XGB; values copied into this document
+- [ ] Notebook 08 map clay share copied (Section 9)
 - [ ] Notebook 10 ends with "EVERYTHING IDENTICAL TO V3, except the items changed on purpose"
 - [ ] Advisor agrees with the override reason
 - [ ] Limitations section written (Section 12)
