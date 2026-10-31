@@ -7,7 +7,7 @@ Sections
   1. Settings and files
   2. Boreholes -> 0.5 m cells (labels and gap filling)
   3. VA-HDW features
-  4. Models (RF, XGB, MLP, GWRF, GWXGB, GBARNN)
+  4. Models (RF, XGB, GWRF, GWXGB, GBARNN, and Li et al.'s comparison models KNN and SVM)
   5. Nested spatial cross-validation
   6. Metrics and model selection
   7. 3D map
@@ -377,7 +377,7 @@ def _weights(y, w, class_weight) -> np.ndarray:
 
 
 class SklearnBase:
-    """RF, XGB or MLP on a feature matrix."""
+    """RF, XGB, KNN or SVM on a feature matrix. KNN and SVM get min-max normalised inputs, as in Li et al. (2026)."""
 
     def __init__(self, name: str, params: dict, seed: int, S: dict):
         self.name, self.params, self.seed, self.S = name, dict(params), seed, S
@@ -395,16 +395,14 @@ class SklearnBase:
             from xgboost import XGBClassifier
             return XGBClassifier(**p, tree_method="hist", eval_metric="logloss", random_state=self.seed,
                                  n_jobs=S["run"]["n_jobs"])
-        if self.name == "MLP":
-            from sklearn.neural_network import MLPClassifier
+        if self.name in ("KNN", "SVM"):
             from sklearn.pipeline import make_pipeline
-            from sklearn.preprocessing import StandardScaler
-            layers = (p.pop("n_units"),) * p.pop("n_layers")
-            if quick:
-                p["max_iter"] = min(p["max_iter"], S["quick"]["mlp_max_iter"])
-            # no early stopping: its random validation rows would mix cells of one borehole
-            return make_pipeline(StandardScaler(), MLPClassifier(hidden_layer_sizes=layers, early_stopping=False,
-                                                                 random_state=self.seed, **p))
+            from sklearn.preprocessing import MinMaxScaler
+            if self.name == "KNN":
+                from sklearn.neighbors import KNeighborsClassifier
+                return make_pipeline(MinMaxScaler(), KNeighborsClassifier(**p, n_jobs=S["run"]["n_jobs"]))
+            from sklearn.svm import SVC
+            return make_pipeline(MinMaxScaler(), SVC(**p, probability=True, random_state=self.seed))
         raise ValueError(self.name)
 
     def fit(self, X, y, w=None, refs=None):
@@ -415,8 +413,10 @@ class SklearnBase:
         self.model_ = self._build()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ConvergenceWarning)
-            if self.name == "MLP":
-                self.model_.fit(X, y, mlpclassifier__sample_weight=w)
+            if self.name == "KNN":                      # KNN has no sample weights
+                self.model_.fit(X, y)
+            elif self.name == "SVM":
+                self.model_.fit(X, y, svc__sample_weight=w)
             else:
                 self.model_.fit(X, y, sample_weight=w)
         if self.name == "RF":
@@ -773,18 +773,39 @@ def inner_predictions(name, features, params, train, groups, seed, S) -> np.ndar
     return p
 
 
-def n_trials(name: str, S: dict) -> int:
-    return S["quick"]["n_trials"] if S["run"]["quick"] else S["cv"]["n_trials"][name]
+UNWEIGHTED = {"KNN"}          # models that cannot use sample weights (filled cells always weight 1)
+
+
+def tunes_filled_weight(name: str, cells) -> bool:
+    return name not in UNWEIGHTED and bool((cells.measured == 0).any())
+
+
+def grid_of(name: str, S: dict, with_filled_weight: bool) -> dict | None:
+    """Full grid of a grid-search model (Li et al.'s Table 6), or None for Optuna (TPE) models."""
+    if name not in S["cv"].get("grid_models", []):
+        return None
+    g = {k: list(v["choices"]) for k, v in S["space"][name].items()}
+    if with_filled_weight:
+        g["filled_weight"] = [float(v) for v in S["cv"]["filled_weights"]]
+    return g
+
+
+def n_trials(name: str, S: dict, with_filled_weight: bool = True) -> int:
+    if S["run"]["quick"]:
+        return S["quick"]["n_trials"]
+    g = grid_of(name, S, with_filled_weight and name not in UNWEIGHTED)
+    return int(np.prod([len(v) for v in g.values()])) if g else S["cv"]["n_trials"][name]
 
 
 def tune(name, features, train, groups, seed, S, on_trial=None) -> dict:
-    """Optuna (TPE) chooses the hyperparameters and the filled-cell weight with the highest
-    inner Macro-F1; for every trial the threshold is the best one on the inner predictions."""
+    """Optuna chooses the hyperparameters and the filled-cell weight with the highest inner Macro-F1;
+    for every trial the threshold is the best one on the inner predictions. TPE for most models;
+    for KNN and SVM a full grid search over Li et al.'s Table 6 grid (Optuna's GridSampler)."""
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     y, grid = train.y.values, threshold_grid(S)
-    has_filled = (train.measured == 0).any()
+    has_filled = tunes_filled_weight(name, train)
 
     def objective(trial):
         p = suggest(trial, S["space"][name])
@@ -794,8 +815,10 @@ def tune(name, features, train, groups, seed, S, on_trial=None) -> dict:
         trial.set_user_attr("threshold", t)
         return f
 
-    study = optuna.create_study(direction="maximize", sampler=optuna.samplers.TPESampler(seed=seed))
-    study.optimize(objective, n_trials=n_trials(name, S),
+    grid = grid_of(name, S, has_filled)
+    sampler = optuna.samplers.GridSampler(grid, seed=seed) if grid else optuna.samplers.TPESampler(seed=seed)
+    study = optuna.create_study(direction="maximize", sampler=sampler)
+    study.optimize(objective, n_trials=n_trials(name, S, has_filled),
                    callbacks=[lambda study, trial: on_trial()] if on_trial else None)
     return {"params": study.best_params, "threshold": study.best_trial.user_attrs["threshold"],
             "inner_macro_f1": study.best_value,
@@ -843,11 +866,12 @@ def load_final(S: dict, comparison: bool = False):
 
 def run_list(S: dict) -> list[dict]:
     """Every run of the experiment:
-    main block size: RF, XGB, MLP, GWRF, GWXGB on XYZ and on XYZ_VAHDW, and GBARNN on XYZ_VAHDW;
+    main block size: RF, XGB, GWRF, GWXGB on XYZ and on XYZ_VAHDW; GBARNN on XYZ_VAHDW; KNN and SVM on XYZ;
     2x and 3x block size: XGB on both feature sets; purge at 1x and 2x (main block): XGB on both sets."""
     cv, sets = S["cv"], S["features"]["sets"]
     runs = [{"model": m, "features": f, "multiple": 1, "purge_x": 0} for m in cv["models"] for f in sets]
     runs += [{"model": m, "features": "XYZ_VAHDW", "multiple": 1, "purge_x": 0} for m in cv["vahdw_only_models"]]
+    runs += [{"model": m, "features": "XYZ", "multiple": 1, "purge_x": 0} for m in cv.get("xyz_only_models", [])]
     runs += [{"model": m, "features": f, "multiple": x, "purge_x": 0} for x in S["blockcv"]["multiples"] if x != 1
              for m in cv["sensitivity_models"] for f in sets]
     runs += [{"model": m, "features": f, "multiple": 1, "purge_x": p} for p in cv["purge_multiples"]

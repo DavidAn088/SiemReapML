@@ -115,12 +115,12 @@ def test_gbarnn_learns_and_gives_probabilities(S):
 
 # ------------------------------------------------------------- all models, both sets ----
 
-@pytest.mark.parametrize("name", ["RF", "XGB", "MLP", "GWRF", "GWXGB"])
+@pytest.mark.parametrize("name", ["RF", "XGB", "GWRF", "GWXGB", "KNN", "SVM"])
 @pytest.mark.parametrize("features", ["XYZ", "XYZ_VAHDW"])
 def test_every_model_on_both_feature_sets(S, name, features):
     c = synthetic_cells()
     space = S["space"][name]
-    params = {k: (v["choices"][0] if v["type"] == "categorical" else v["low"]) for k, v in space.items()}
+    params = {k: (v["choices"][-1] if v["type"] == "categorical" else v["low"]) for k, v in space.items()}
     if "k_neighbours" in params:
         params["k_neighbours"] = 10
     params["filled_weight"] = 0.5
@@ -138,3 +138,16 @@ def test_paired_gain_rule():
                          "outer_fold": k, "macro_f1": v})
     g = H.paired_gain(pd.DataFrame(rows))
     assert g.verdict.iloc[0] == "helps" and g.mean_gain.iloc[0] == pytest.approx(0.06)
+
+
+def test_grid_search_covers_li_table6(S):
+    S["run"]["quick"] = False
+    assert H.n_trials("KNN", S) == 15 * 3 * 2                      # n_neighbors x leaf_size x p (no weights)
+    assert H.n_trials("SVM", S) == 4 * 1 * 2 * len(S["cv"]["filled_weights"])
+    assert H.n_trials("SVM", S, with_filled_weight=False) == 8
+
+
+def test_run_list_models(S):
+    runs = {(r["model"], r["features"]) for r in H.run_list(S) if r["multiple"] == 1 and r["purge_x"] == 0}
+    assert ("KNN", "XYZ") in runs and ("SVM", "XYZ") in runs and ("KNN", "XYZ_VAHDW") not in runs
+    assert ("GBARNN", "XYZ_VAHDW") in runs and not any(m == "MLP" for m, _ in runs)

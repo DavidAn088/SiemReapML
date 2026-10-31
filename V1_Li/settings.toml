@@ -48,8 +48,9 @@ unclassified_blocks_fill = false
 github_repo = "rvalavi/blockCV"
 github_commit = "51e6903fe652411248aa20937c80b122e5e12e09"
 version = "4.0.2"
-# Block size = blockCV cv_spatial_autocor()$range with one column per depth slice
-# (each borehole's clay share in the slice); blockCV takes the median of the slice ranges itself.
+# Main block size, fixed at the thesis block size of 106 m. blockCV cv_spatial_autocor()$range (one
+# column per 3 m depth slice) is still computed and reported for information; set block_m = 0 to use it instead.
+block_m = 106.0
 slice_m = 3.0
 info_slices_m = [1.5, 5.0, 15.0]  # printed for information only; they do not set the block size
 k = 5
@@ -69,8 +70,10 @@ masked_distance_km = 20.0         # a cell's own borehole is masked: d = 20 km, 
 chunk_rows = 20000                # cells per block when building features (bounds memory)
 
 [cv]
-models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]   # run on both feature sets
-vahdw_only_models = ["GBARNN"]                   # needs the VA-HDW features
+models = ["RF", "XGB", "GWRF", "GWXGB"]         # run on both feature sets
+vahdw_only_models = ["GBARNN"]                  # Li et al.'s model: needs the VA-HDW features
+xyz_only_models = ["KNN", "SVM"]                # Li et al.'s comparison models: normalised X, Y, Z only (their Sec. 4)
+grid_models = ["KNN", "SVM"]                    # tuned by grid search over Li et al.'s Table 6 grid (every combination)
 sensitivity_models = ["XGB"]         # both feature sets, on the 2x and 3x block sizes
 purge_multiples = [1, 2]             # training boreholes closer than 1x / 2x the block size to a test borehole are removed
 purge_models = ["XGB"]
@@ -80,7 +83,6 @@ threshold_grid = [0.05, 0.95, 0.01]  # start, stop, step of the decision thresho
 [cv.n_trials]
 RF = 50
 XGB = 50
-MLP = 50
 GWRF = 30
 GWXGB = 30
 GBARNN = 30
@@ -101,7 +103,6 @@ chunk_rows = 500000
 outer_folds = [1]
 n_trials = 2
 max_trees = 50
-mlp_max_iter = 200
 max_epochs = 20
 map_spacing_m = 500.0
 shap_cells = 60
@@ -141,15 +142,18 @@ reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
 gamma = { type = "float", low = 0.0, high = 5.0 }
 class_weight = { type = "categorical", choices = ["none", "balanced"] }
 
-[space.MLP]
-n_layers = { type = "int", low = 1, high = 3 }
-n_units = { type = "int", low = 8, high = 128, log = true }
-activation = { type = "categorical", choices = ["relu", "tanh"] }
-alpha = { type = "float", low = 1e-6, high = 0.1, log = true }
-learning_rate_init = { type = "float", low = 1e-4, high = 1e-2, log = true }
-batch_size = { type = "categorical", choices = [32, 64, 128] }
-max_iter = { type = "int", low = 200, high = 1000, step = 100 }
-class_weight = { type = "categorical", choices = ["none", "balanced"] }
+# Li et al. (2026) Table 6: the grids they searched. The inputs are min-max normalised X, Y, Z.
+# (leaf_size only changes speed, not the result; it is kept to match the paper.)
+# KNN cannot use sample weights, so filled cells always have weight 1; SVM also tunes the filled-cell weight.
+[space.KNN]
+n_neighbors = { type = "categorical", choices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] }
+leaf_size = { type = "categorical", choices = [20, 30, 40] }
+p = { type = "categorical", choices = [1, 2] }
+
+[space.SVM]
+C = { type = "categorical", choices = [0.1, 1.0, 10.0, 100.0] }
+kernel = { type = "categorical", choices = ["rbf"] }
+gamma = { type = "categorical", choices = ["scale", "auto"] }
 
 [space.GWRF]
 k_neighbours = { type = "int", low = 8, high = 60 }

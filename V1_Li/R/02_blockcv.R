@@ -1,9 +1,9 @@
 # Block size and spatial folds, using only blockCV's own functions.
 #
-# 1. Block size = cv_spatial_autocor()$range.
-#    One point per borehole; one column per 3 m depth slice (the borehole's clay share in it).
-#    With several columns, blockCV fits a variogram to each and returns the MEDIAN of their
-#    ranges as $range. We use that number as it is.
+# 1. Block size = the fixed thesis block size in settings.toml (block_m = 106 m).
+#    blockCV's own estimate is still computed and reported: cv_spatial_autocor()$range, one point per
+#    borehole, one column per 3 m depth slice (the borehole's clay share in it); blockCV fits a
+#    variogram to each column and returns the MEDIAN of their ranges. With block_m = 0 that range is used.
 # 2. Folds = cv_spatial() with k = 5 square blocks of that size (and 2x, 3x for sensitivity),
 #    one point per borehole, balanced on the borehole clay share.
 #
@@ -35,9 +35,12 @@ autocorrelation <- function(slice_m) {
 # ---- 1. block size from the main slice thickness ----------------------------------------
 main <- autocorrelation(b$slice_m)
 print(main$result)
-block_m <- main$result$range
-cat(sprintf("\nBlock size = blockCV range = %.1f m (%d boreholes, %d slices of %g m)\n\n",
-            block_m, main$boreholes, length(main$columns), b$slice_m))
+range_m <- main$result$range
+fixed <- !is.null(b$block_m) && b$block_m > 0
+block_m <- if (fixed) b$block_m else range_m
+cat(sprintf("\nblockCV range = %.1f m (%d boreholes, %d slices of %g m)\n", range_m, main$boreholes,
+            length(main$columns), b$slice_m))
+cat(sprintf("Block size used = %.1f m (%s)\n\n", block_m, if (fixed) "fixed in settings.toml" else "blockCV range"))
 write.csv(main$result$range_table, file.path(s$out_dir, "range_by_slice.csv"), row.names = FALSE)
 ggsave(file.path(s$out_dir, "fig_range_by_slice.png"), main$result$plots$barchart, width = 6, height = 4, dpi = 200)
 
@@ -48,7 +51,7 @@ info <- do.call(rbind, lapply(b$info_slices_m, function(w) {
   data.frame(slice_m = w, boreholes = r$boreholes, slices = length(r$columns), blockcv_range_m = r$result$range)
 }))
 info <- rbind(data.frame(slice_m = b$slice_m, boreholes = main$boreholes, slices = length(main$columns),
-                         blockcv_range_m = block_m), info)
+                         blockcv_range_m = range_m), info)
 info$used_for_block_size <- info$slice_m == b$slice_m
 cat("blockCV range for other slice thicknesses (information only):\n")
 print(info, row.names = FALSE)
@@ -82,7 +85,7 @@ print(folds, row.names = FALSE)
 write.csv(folds, file.path(s$out_dir, "fold_summary.csv"), row.names = FALSE)
 
 jsonlite::write_json(list(
-  block_m = block_m, slice_m = b$slice_m, boreholes_used = main$boreholes, slices = main$columns,
+  block_m = block_m, block_fixed_in_settings = fixed, blockcv_range_m = range_m, slice_m = b$slice_m, boreholes_used = main$boreholes, slices = main$columns,
   range_by_slice_m = as.list(setNames(main$result$range_table$range, main$result$range_table$layers)),
   multiples = b$multiples,
   blockcv_version = as.character(packageVersion("blockCV")),

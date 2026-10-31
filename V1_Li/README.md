@@ -23,9 +23,9 @@ how well a model predicts **away from** the boreholes, which is what a 3D map ne
 | Gap filling | gaps ≤ 3 m between two cells of the same class; an unclassified SS sample does not stop the fill (SS rule). Filled cells are used for training **and** testing; every score is also given on measured cells only; the weight of filled cells is tuned |
 | Inputs, set 1 | **XYZ**: Easting, Northing, top elevation of the cell (the baseline used by most ML soil studies) |
 | Inputs, set 2 | **XYZ + VA-HDW** (Li et al.): for every reference borehole, the distance **d**, the class at the cell's elevation **Φ** and the influence coefficient **S** |
-| Models | RF, XGB, MLP, GWRF, GWXGB on **both** sets; **GBARNN** (Li et al.) on XYZ + VA-HDW, with X, Y, Z also fed to its head |
-| Tuning | Optuna (TPE) for **every** model, GBARNN included (layer sizes, learning rate, epochs, batch size, weight decay); the decision threshold and the weight of filled cells are tuned too. The paper's fixed settings are not used |
-| Block size | **blockCV only**: `cv_spatial_autocor()$range` with one column per 3 m slice. blockCV 4.0-2 from GitHub, commit `51e6903` |
+| Models | RF, XGB, GWRF, GWXGB on **both** sets; **GBARNN** (Li et al.) on XYZ + VA-HDW, with X, Y, Z also fed to its head; Li et al.'s comparison models **KNN** and **SVM** on min-max normalised XYZ, as in the paper |
+| Tuning | Optuna (TPE) for RF, XGB, GWRF, GWXGB and GBARNN (layer sizes, learning rate, epochs, batch size, weight decay). KNN and SVM: **grid search over the paper's own grid** (Table 6: KNN n_neighbors 1-15, leaf_size 20/30/40, p 1/2; SVM rbf, C 0.1/1/10/100, gamma scale/auto). The decision threshold and (except KNN, which has no sample weights) the weight of filled cells are tuned too |
+| Block size | **106 m** (the thesis block size, fixed in `settings.toml → [blockcv] block_m`). blockCV's own `cv_spatial_autocor()$range` (one column per 3 m slice) is computed and reported for information. blockCV 4.0-2 from GitHub, commit `51e6903` |
 | Folds | `cv_spatial()`, k = 5 square blocks, all boreholes in the CV; sensitivity 2× and 3× the block size; purge 1× and 2× (XGB, both sets) |
 | VA-HDW gain | rule decided before the results: per model, the fold-by-fold Macro-F1 difference (XYZ + VA-HDW − XYZ); **helps** only if the mean is above one SE |
 | Final model | rule decided before the results (recall rule, 1-SE rule; all models on both sets are candidates); tuned and trained on all boreholes, then frozen. A comparison model (best on the other feature set) is frozen too |
@@ -43,6 +43,8 @@ how well a model predicts **away from** the boreholes, which is what a 3D map ne
   and S = 0.
 * **GBARNN output.** As in the paper's equations (one weight per borehole, softmax), P(Clay) = Σ weight × the
   borehole's clay share. The model sees depth through which boreholes get weight and through X, Y, Z in the head.
+* **Not included: GeoPDNN.** Li et al. also compare with GeoPDNN, a semi-supervised model from another paper
+  (their ref. [19]) with its own settings and no published code; it is not re-implemented here.
 * **No published code.** GBARNN is written in NumPy (no PyTorch needed); its gradients are checked against numerical
   derivatives in `tests/`. Input scaling and the Leaky ReLU slope (0.01) are standard choices, not from the paper.
 
@@ -67,8 +69,8 @@ how well a model predicts **away from** the boreholes, which is what a 3D map ne
 | `09_figures` | < 1 min | |
 
 Notebook 03 time comes from timing full-size Optuna trials (minutes per outer fold, XYZ / XYZ + VA-HDW):
-RF 8 / 18, XGB 1 / 7, MLP 36 / 24, GWRF 23 / 59, GWXGB 2 / 5, **GBARNN 151** (VA-HDW only).
-Main runs: about 28 h (GBARNN alone about 13 h); block-size and purge runs (XGB): about 2.5 h.
+RF 8 / 18, XGB 1 / 7, GWRF 23 / 59, GWXGB 2 / 5, **GBARNN 151** (VA-HDW only); KNN and SVM: being timed.
+Main runs: about 26 h without KNN and SVM (GBARNN alone about 13 h); block-size and purge runs (XGB): about 2.5 h.
 Real times depend on the PC and on the hyperparameters Optuna tries.
 `RUN_ONLY = ["_x1_purge0"]` runs the main results first; `RUN_ONLY = ["GBARNN"]` runs only GBARNN (for example overnight).
 
@@ -76,7 +78,7 @@ Real times depend on the PC and on the hyperparameters Optuna tries.
 
 `settings.toml → [run] quick = true` runs everything in about 15 minutes (1 fold, 2 trials, coarse map) and writes to
 `outputs_quick/`. It only checks that the code works: **quick results are never thesis results.**
-`python -m pytest -q tests` runs the checks of the main rules (16 tests).
+`python -m pytest -q tests` runs the checks of the main rules (20 tests).
 
 ## Folders
 
