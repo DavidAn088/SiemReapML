@@ -815,8 +815,9 @@ def tune(name, features, train, groups, seed, S, on_trial=None) -> dict:
         trial.set_user_attr("threshold", t)
         return f
 
-    grid = grid_of(name, S, has_filled)
-    sampler = optuna.samplers.GridSampler(grid, seed=seed) if grid else optuna.samplers.TPESampler(seed=seed)
+    param_grid = grid_of(name, S, has_filled)
+    sampler = (optuna.samplers.GridSampler(param_grid, seed=seed) if param_grid
+               else optuna.samplers.TPESampler(seed=seed))
     study = optuna.create_study(direction="maximize", sampler=sampler)
     study.optimize(objective, n_trials=n_trials(name, S, has_filled),
                    callbacks=[lambda study, trial: on_trial()] if on_trial else None)

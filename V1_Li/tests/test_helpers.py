@@ -151,3 +151,14 @@ def test_run_list_models(S):
     runs = {(r["model"], r["features"]) for r in H.run_list(S) if r["multiple"] == 1 and r["purge_x"] == 0}
     assert ("KNN", "XYZ") in runs and ("SVM", "XYZ") in runs and ("KNN", "XYZ_VAHDW") not in runs
     assert ("GBARNN", "XYZ_VAHDW") in runs and not any(m == "MLP" for m, _ in runs)
+
+
+@pytest.mark.parametrize("name", ["XGB", "SVM", "KNN"])
+def test_tune_runs_and_grid_search_tries_distinct_points(S, name):
+    c = synthetic_cells()
+    groups = (c.BH_Code.str[1:].astype(int) % 3).values
+    best = H.tune(name, "XYZ", c, groups, 1, S)
+    assert 0 <= best["threshold"] <= 1 and len(best["trials"]) == S["quick"]["n_trials"]
+    if name in ("SVM", "KNN"):
+        cols = [k for k in best["trials"].columns if k.startswith("params_")]
+        assert not best["trials"][cols].duplicated().any()           # grid search: no point tried twice
