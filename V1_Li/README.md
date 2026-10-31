@@ -53,7 +53,7 @@ how well a model predicts **away from** the boreholes, which is what a 3D map ne
 1. Copy your raw data files into `V1_Li\data\raw` (see `data/raw/README.md`). Put the **blockCV ZIP** from GitHub
    there too (R has no internet on the school PC).
 2. Open Jupyter in the `V1_Li` folder with the same Python environment as before (kernel **SiemReapML env**).
-   No new package is needed.
+   No new package is needed. To check: `python check_packages.py` lists every Python and R package with OK / MISSING.
 3. Run the notebooks in order: open each one and choose **Run All**.
 
 | Notebook | Time | Notes |
