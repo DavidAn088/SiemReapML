@@ -60,7 +60,7 @@ how well a model predicts **away from** the boreholes, which is what a 3D map ne
 |---|---|---|
 | `01_data` | < 1 min | |
 | `02_blockcv` | 1-5 min | set `RSCRIPT` / `RTOOLS` at the top (school PC paths are already there) |
-| `03_spatial_cv` | **about 30 h on a fast 4-core PC; plan 2-3 days on the school PC** | saves after every fold; if it stops, run it again and it continues. `RUN_ONLY = ["_x1_purge0"]` gives the main results first |
+| `03_spatial_cv` | **about 26 h on a fast 4-core PC; plan 2-3 days on the school PC** | saves after every fold; if it stops, run it again and it continues. `RUN_ONLY = ["_x1_purge0"]` gives the main results first |
 | `04_results` | < 1 min | VA-HDW gain test, final model |
 | `05_final_model` | 10-60 min | runs only once (the models are frozen) |
 | `06_xai` | 10-40 min | |
@@ -69,8 +69,8 @@ how well a model predicts **away from** the boreholes, which is what a 3D map ne
 | `09_figures` | < 1 min | |
 
 Notebook 03 time comes from timing full-size Optuna trials (minutes per outer fold, XYZ / XYZ + VA-HDW):
-RF 8 / 18, XGB 1 / 7, GWRF 23 / 59, GWXGB 2 / 5, **GBARNN 151** (VA-HDW only); KNN and SVM: being timed.
-Main runs: about 26 h without KNN and SVM (GBARNN alone about 13 h); block-size and purge runs (XGB): about 2.5 h.
+RF 8 / 18, XGB 1 / 7, GWRF 23 / 59, GWXGB 2 / 5, **GBARNN 151** (VA-HDW only); KNN 1 and SVM 2 (XYZ only, full grid: 90 and 24 trials).
+Main runs: about 23 h (GBARNN alone about 13 h); block-size and purge runs (XGB): about 2.5 h.
 Real times depend on the PC and on the hyperparameters Optuna tries.
 `RUN_ONLY = ["_x1_purge0"]` runs the main results first; `RUN_ONLY = ["GBARNN"]` runs only GBARNN (for example overnight).
 

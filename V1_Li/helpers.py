@@ -413,6 +413,7 @@ class SklearnBase:
         self.model_ = self._build()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", ConvergenceWarning)
+            warnings.filterwarnings("ignore", message=".*probability.*deprecated", category=FutureWarning)  # SVC, sklearn >= 1.9
             if self.name == "KNN":                      # KNN has no sample weights
                 self.model_.fit(X, y)
             elif self.name == "SVM":
