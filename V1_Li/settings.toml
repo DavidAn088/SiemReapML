@@ -1,0 +1,177 @@
+# V1_Li settings: the ideas of Li et al. (2026, Algorithms 19:128) - VA-HDW features and the GBARNN
+# model - applied to the Siem Reap boreholes under spatial block cross-validation.
+# Every choice of the experiment is in this one file.
+# Change a value here, never inside a notebook.
+
+[run]
+# quick = true runs a tiny version of everything (1 outer fold, 2 Optuna trials, small models,
+# coarse map) to check that the code works. Quick results are NEVER thesis results.
+quick = false
+seed = 20261027
+n_jobs = 4                        # CPU cores used by one model fit
+
+[area]
+# "downtown_5km": Downtown + the 5 km ring (145 boreholes)   |   "downtown": Downtown only (120)
+# The same area is used for the cross-validation, the final model and the map.
+area = "downtown_5km"
+
+[files]
+boreholes_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+boreholes_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+new_external_csv = "data/raw/External_BHs_SR_Elev.csv"
+new_external_sha256 = "44dcd35f5bb818abe03d043ee76db5ccca6ea40a3fe4b348239ec9b9468bb126"
+downtown_shp = "data/raw/gis/downtown/downtown.shp"
+ring_shp = "data/raw/gis/ring_5km/Ring_5km.shp"
+dem = "data/raw/gis/dem_downtown"
+manual_flags = "data/raw/manual_borehole_flags.csv"   # optional: BH_Code, exclude_from_training, ...
+epsg = 32648
+
+[labels]
+clay = ["CL", "CH"]               # Clay = 1
+sand = ["SC", "SM", "SP"]         # Sand = 0; every other symbol (ML, CL-ML, missing) gives no label
+region_downtown = "Downtown"
+region_ring = "Downtown_5km"
+
+[cells]
+top_m = 0.0
+bottom_m = 15.0
+cell_m = 0.5
+min_coverage = 0.5                # a cell is labelled when samples of one class cover >= half of it
+max_sample_length_m = 3.0         # longer records are not used as labels
+fill_max_gap_m = 3.0              # gaps up to 3 m between two cells of the same class are filled
+# Student's rule (decided 2026-10-27): an unclassified SS sample between two samples of the same
+# class belongs to that class, i.e. a record without a USCS symbol does not stop a gap from being filled.
+unclassified_blocks_fill = false
+
+[blockcv]
+# The original package from GitHub, pinned to one commit so it never changes.
+github_repo = "rvalavi/blockCV"
+github_commit = "51e6903fe652411248aa20937c80b122e5e12e09"
+version = "4.0.2"
+# Main block size, fixed at the thesis block size of 106 m. blockCV cv_spatial_autocor()$range (one
+# column per 3 m depth slice) is still computed and reported for information; set block_m = 0 to use it instead.
+block_m = 106.0
+slice_m = 3.0
+info_slices_m = [1.5, 5.0, 15.0]  # printed for information only; they do not set the block size
+k = 5
+hexagon = false                   # square blocks
+selection = "random"
+iteration = 300
+multiples = [1, 2, 3]             # 1 = main block size; 2 and 3 = sensitivity
+
+[features]
+# XYZ       = Easting, Northing, top elevation of the cell
+# XYZ_VAHDW = XYZ + the VA-HDW features of Li et al. (2026): for every reference borehole, the
+#             horizontal distance d, the class (clay 1 / sand 0) at the cell's elevation in that
+#             borehole (Phi) and the influence coefficient S (1 at the middle of a layer, 0 at its
+#             boundaries or outside the borehole). Reference boreholes = the training boreholes of each fit.
+sets = ["XYZ", "XYZ_VAHDW"]
+masked_distance_km = 20.0         # a cell's own borehole is masked: d = 20 km, Phi = 0.5, S = 0
+chunk_rows = 20000                # cells per block when building features (bounds memory)
+
+[cv]
+models = ["RF", "XGB", "GWRF", "GWXGB"]         # run on both feature sets
+vahdw_only_models = ["GBARNN"]                  # Li et al.'s model: needs the VA-HDW features
+xyz_only_models = ["KNN", "SVM"]                # Li et al.'s comparison models: normalised X, Y, Z only (their Sec. 4)
+grid_models = ["KNN", "SVM"]                    # tuned by grid search over Li et al.'s Table 6 grid (every combination)
+sensitivity_models = ["XGB"]         # both feature sets, on the 2x and 3x block sizes
+purge_multiples = [1, 2]             # training boreholes closer than 1x / 2x the block size to a test borehole are removed
+purge_models = ["XGB"]
+filled_weights = [0.25, 0.5, 1.0]    # training weight of filled cells, tuned in the inner CV
+threshold_grid = [0.05, 0.95, 0.01]  # start, stop, step of the decision threshold search
+
+[cv.n_trials]
+RF = 50
+XGB = 50
+GWRF = 30
+GWXGB = 30
+GBARNN = 30
+
+[gw]
+min_boreholes = 5
+min_cells_per_class = 20
+max_neighbours = 80
+local_rf_trees = 100
+local_xgb_rounds_max = 300
+
+[map]
+spacing_m = 50.0
+zone_edges_m = [100.0, 300.0]     # reliability zones: 1 = <= 100 m, 2 = 100-300 m, 3 = > 300 m from a borehole
+chunk_rows = 500000
+
+[quick]
+outer_folds = [1]
+n_trials = 2
+max_trees = 50
+max_epochs = 20
+map_spacing_m = 500.0
+shap_cells = 60
+
+# ------------------------------------------------------------ Optuna search spaces ----
+# type: int | float | categorical; log = true samples on a log scale.
+# GBARNN (Li et al. 2026): shared GBDNN unit (d, Phi, S) -> g1 -> g2 -> generalised distance per borehole;
+# head: [generalised distances, X, Y, Z] -> u1 -> u2 -> one weight per borehole (softmax, own borehole masked);
+# P(Clay) = sum of weights x clay share of each borehole.  Trained with Adam; all sizes and settings tuned here.
+[space.GBARNN]
+g1 = { type = "int", low = 4, high = 32, log = true }
+g2 = { type = "int", low = 2, high = 16, log = true }
+u1 = { type = "int", low = 32, high = 256, log = true }
+u2 = { type = "int", low = 16, high = 128, log = true }
+learning_rate = { type = "float", low = 1e-4, high = 1e-2, log = true }
+epochs = { type = "int", low = 50, high = 400, step = 50 }
+batch_size = { type = "categorical", choices = [32, 64, 128] }
+weight_decay = { type = "float", low = 1e-6, high = 1e-2, log = true }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.RF]
+n_estimators = { type = "int", low = 200, high = 800, step = 100 }
+max_depth = { type = "int", low = 3, high = 30 }
+min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
+max_features = { type = "categorical", choices = ["sqrt", 0.5, 1.0] }
+max_samples = { type = "float", low = 0.5, high = 1.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.XGB]
+n_estimators = { type = "int", low = 100, high = 800, step = 50 }
+learning_rate = { type = "float", low = 0.01, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 10 }
+min_child_weight = { type = "float", low = 1.0, high = 30.0, log = true }
+subsample = { type = "float", low = 0.5, high = 1.0 }
+colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+gamma = { type = "float", low = 0.0, high = 5.0 }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+# Li et al. (2026) Table 6: the grids they searched. The inputs are min-max normalised X, Y, Z.
+# (leaf_size only changes speed, not the result; it is kept to match the paper.)
+# KNN cannot use sample weights, so filled cells always have weight 1; SVM also tunes the filled-cell weight.
+[space.KNN]
+n_neighbors = { type = "categorical", choices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] }
+leaf_size = { type = "categorical", choices = [20, 30, 40] }
+p = { type = "categorical", choices = [1, 2] }
+
+[space.SVM]
+C = { type = "categorical", choices = [0.1, 1.0, 10.0, 100.0] }
+kernel = { type = "categorical", choices = ["rbf"] }
+gamma = { type = "categorical", choices = ["scale", "auto"] }
+
+[space.GWRF]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+max_depth = { type = "int", low = 3, high = 20 }
+min_samples_leaf = { type = "int", low = 1, high = 30, log = true }
+max_features = { type = "categorical", choices = ["sqrt", 0.5, 1.0] }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }
+
+[space.GWXGB]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+n_estimators = { type = "int", low = 50, high = 300, step = 50 }
+learning_rate = { type = "float", low = 0.03, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 6 }
+min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
+subsample = { type = "float", low = 0.6, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+class_weight = { type = "categorical", choices = ["none", "balanced"] }

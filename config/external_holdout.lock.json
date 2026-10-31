@@ -1,0 +1,32 @@
+{
+  "sha256": "949ca2b702a813f068d50794a2a09e35e105d81e0d95348e9ebfba718dbfc494",
+  "n_boreholes": 11,
+  "groups": {
+    "generalisation": 6,
+    "interpolation": 5
+  },
+  "selection_info": {
+    "downtown_boreholes": 120,
+    "eligible": 101,
+    "sites": 75,
+    "generalisation_candidate_sites": 15,
+    "interpolation_candidate_sites": 23,
+    "selected_generalisation_boreholes": 6,
+    "selected_interpolation_boreholes": 5
+  },
+  "rule": {
+    "site_linkage_m": 100.0,
+    "n_zones": 3,
+    "n_generalisation_sites": 5,
+    "generalisation_min_isolation_m": 500.0,
+    "n_interpolation_boreholes": 5,
+    "interpolation_min_site_size": 2,
+    "min_depth_m": 15.0,
+    "min_uscs_intervals": 10,
+    "max_coordinate_mismatch_m": 5.0,
+    "max_record_length_m": 1.0
+  },
+  "seed": 20261012,
+  "locked_on": "2026-10-12",
+  "note": "Selected from coordinates and sampling metadata only, before any modelling."
+}
