@@ -9,10 +9,10 @@ hash-locked external-holdout boreholes, read from the V3 folder.
 
 | | |
 |---|---|
-| Targets | inputs for settlement from groundwater lowering: `Water_Content_pct`, `Void_Ratio` (e0), `LL_pct`, `PI_pct` (Cc correlations), `Wet_Unit_Weight_kN_m3` (stress change), `SPT_N` (sand stiffness). Change in `settings.toml → [cv] targets` and `[targets.*]` |
+| Targets | inputs for settlement from groundwater lowering: `Water_Content_pct`, `Void_Ratio` (e0), `LL_pct`, `PI_pct` (Cc correlations), `Wet_Unit_Weight_kN_m3` (stress change), `SPT_N` (sand stiffness), `Su_kPa` on clay samples (CL, CH) only. Change in `settings.toml → [cv] targets` and `[targets.*]` |
 | Samples | one row = one sample record with a value; record ≤ 3 m long, middle depth 0-15 m, value in the target's min/max. No gap filling (point values) |
 | Inputs | Easting, Northing, mid elevation of the sample (= ground elevation − middle depth), as in V3 |
-| Transform | SPT-N is learned as log(1 + N); every score is on the original scale |
+| Transform | SPT-N and Su are learned as log(1 + value); every score is on the original scale |
 | Models | RF, XGB (Optuna, 30 trials, inner out-of-fold RMSE) and a **depth-only reference** (training mean per 1 m slice) |
 | Scores | RMSE, MAE, R², bias, Spearman per outer fold; skill vs depth-only = 1 − RMSE / RMSE_depth |
 | Model choice | per target, on the 106 m block: lowest mean RMSE; within one SE, lowest fold SD, then lowest MAE. Fixed before the results |
@@ -27,7 +27,7 @@ hash-locked external-holdout boreholes, read from the V3 folder.
 | Notebook | Time | |
 |---|---|---|
 | `01_data` | < 1 min | samples per target, depth profiles, values by USCS group |
-| `02_spatial_cv` | **pilot a few minutes**, then roughly 1-2 h per target, 6 targets (estimate) | `PILOT = True` first; then `PILOT = False`. Saves after every fold and continues after a crash. `RUN_TARGETS = ["SPT_N"]` runs one target |
+| `02_spatial_cv` | **pilot a few minutes**, then roughly 1-2 h per target, 7 targets (estimate) | `PILOT = True` first; then `PILOT = False`. Saves after every fold and continues after a crash. `RUN_TARGETS = ["SPT_N"]` runs one target |
 | `03_results` | < 1 min | scores, skill vs depth, model choice, figures |
 | `04_final_external` | 5-15 min per target | final models (frozen) and the external test, **once** |
 

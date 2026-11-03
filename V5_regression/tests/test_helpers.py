@@ -55,3 +55,10 @@ def test_selection_rule_within_one_se():
     c = H.select_model(summ, "T", 106)
     assert c["lowest_mean"] == "RF" and c["selected"] == "XGB"
     assert np.isclose(summ.set_index("model").skill_vs_depth["RF"], 0.5)
+
+
+def test_su_uses_clay_samples_only():
+    r = pd.DataFrame({"BH_Code": "B", "Depth_From_m": [1.0, 2.0], "Depth_To_m": [1.45, 2.45], "Su_kPa": [30, 40],
+                      "USCS": ["CH", "SM"], "UTM_Easting_m": 0.0, "UTM_Northing_m": 0.0, "Ground_Elevation_m": 10.0})
+    s, info = H.make_samples(r, "Su", S)
+    assert list(s.y) == [30] and info["dropped_other_uscs"] == 1

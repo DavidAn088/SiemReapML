@@ -70,11 +70,20 @@ log = false
 min = 12
 max = 25
 
+[targets.Su]
+column = "Su_kPa"
+unit = "kPa"
+log = true
+min = 0
+max = 500
+uscs = ["CL", "CH"]               # clay samples only: the compressible layer
+
 [cv]
 k = 5
 # Chosen for settlement from groundwater lowering (InSAR): e0, w, LL/PI (Cc correlations),
-# unit weight (stress change), SPT-N (stiffness of sand layers)
-targets = ["Water_Content", "Void_Ratio", "LL", "PI", "Wet_Unit_Weight", "SPT_N"]
+# unit weight (stress change), SPT-N (stiffness of sand layers), Su of the clay (soft-clay
+# strength; correlates with stiffness and OCR)
+targets = ["Water_Content", "Void_Ratio", "LL", "PI", "Wet_Unit_Weight", "SPT_N", "Su"]
 models = ["RF", "XGB"]            # plus the depth-only reference "Depth" (no tuning)
 block_multiples = [1, 2, 3]       # V3: 106 m (main), 212 m, 318 m (sensitivity)
 depth_bin_m = 1.0                 # depth-only reference: training mean per 1 m depth slice

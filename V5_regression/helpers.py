@@ -106,7 +106,8 @@ def load_downtown(S: dict) -> pd.DataFrame:
 
 def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFrame, dict]:
     """Rows with a value of the target. Kept when the record is at most 3 m long, its middle
-    lies in 0-15 m and the value is inside the target's [min, max]. Mid elevation =
+    lies in 0-15 m and the value is inside the target's [min, max] (and, if the target lists
+    `uscs`, the record's USCS symbol is one of them). Mid elevation =
     ground elevation - middle depth (the same ground elevation as V3's cells)."""
     t, s = S["targets"][target], S["samples"]
     v = pd.to_numeric(records[t["column"]], errors="coerce")
@@ -116,6 +117,10 @@ def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFr
     long_ = (r.Depth_To_m - r.Depth_From_m) > s["max_sample_length_m"]
     outside = (mid < s["top_m"]) | (mid > s["bottom_m"])
     bad = (r.value < t["min"]) | (r.value > t["max"])
+    if t.get("uscs"):                                    # e.g. Su on clay samples only
+        other = ~r.USCS.isin(t["uscs"]) & ~long_ & ~outside & ~bad
+        info["dropped_other_uscs"] = int(other.sum())
+        bad = bad | other
     info |= {"dropped_longer_than_3m": int(long_.sum()), "dropped_outside_depth": int((outside & ~long_).sum()),
              "dropped_out_of_range": int((bad & ~long_ & ~outside).sum())}
     keep = ~long_ & ~outside & ~bad
