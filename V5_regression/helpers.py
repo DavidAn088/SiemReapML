@@ -107,7 +107,8 @@ def load_downtown(S: dict) -> pd.DataFrame:
 def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFrame, dict]:
     """Rows with a value of the target. Kept when the record is at most 3 m long, its middle
     lies in 0-15 m and the value is inside the target's [min, max] (and, if the target lists
-    `uscs`, the record's USCS symbol is one of them). Mid elevation =
+    `uscs`, the record's USCS symbol is one of them). Then values farther than `outlier_sd`
+    standard deviations from the mean of the kept values are dropped. Mid elevation =
     ground elevation - middle depth (the same ground elevation as V3's cells)."""
     t, s = S["targets"][target], S["samples"]
     v = pd.to_numeric(records[t["column"]], errors="coerce")
@@ -124,6 +125,12 @@ def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFr
     info |= {"dropped_longer_than_3m": int(long_.sum()), "dropped_outside_depth": int((outside & ~long_).sum()),
              "dropped_out_of_range": int((bad & ~long_ & ~outside).sum())}
     keep = ~long_ & ~outside & ~bad
+    k_sd = s.get("outlier_sd")
+    if k_sd:                                             # Khamjan et al. (2026): drop values beyond mean +- 3 SD
+        v = r.value[keep]
+        far = keep & ((r.value - v.mean()).abs() > k_sd * v.std())
+        info["dropped_beyond_sd"] = int(far.sum())
+        keep = keep & ~far
     r, mid = r[keep], mid[keep]
     out = pd.DataFrame({"BH_Code": r.BH_Code.values, "depth_m": mid.values,
                         "UTM_Easting_m": r.UTM_Easting_m.values, "UTM_Northing_m": r.UTM_Northing_m.values,

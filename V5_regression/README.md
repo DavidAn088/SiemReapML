@@ -10,7 +10,7 @@ hash-locked external-holdout boreholes, read from the V3 folder.
 | | |
 |---|---|
 | Targets | inputs for settlement from groundwater lowering: `Water_Content_pct`, `Void_Ratio` (e0), `LL_pct`, `PI_pct` (Cc correlations), `Wet_Unit_Weight_kN_m3` (stress change), `Specific_Gravity` (check of e0 = w·Gs), `SPT_N` (sand stiffness), `Su_kPa` on clay samples (CL, CH) only. Change in `settings.toml → [cv] targets` and `[targets.*]` |
-| Samples | one row = one sample record with a value; record ≤ 3 m long, middle depth 0-15 m, value in the target's min/max. No gap filling (point values) |
+| Samples | one row = one sample record with a value; record ≤ 3 m long, middle depth 0-15 m, value in the target's min/max (SPT-N ≤ 60), then values beyond mean ± 3 SD dropped (both as Khamjan et al. 2026). No gap filling (point values) |
 | Inputs | Easting, Northing, mid elevation of the sample (= ground elevation − middle depth), as in V3 |
 | Transform | SPT-N and Su are learned as log(1 + value); every score is on the original scale |
 | Models | RF, XGB (Optuna, 30 trials, inner out-of-fold RMSE) and a **depth-only reference** (training mean per 1 m slice) |

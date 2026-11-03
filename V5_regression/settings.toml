@@ -23,6 +23,7 @@ region_downtown = "Downtown"
 top_m = 0.0
 bottom_m = 15.0                   # middle depth must lie in [top_m, bottom_m]
 max_sample_length_m = 3.0         # longer records are not point values
+outlier_sd = 3.0                  # drop values beyond mean +- 3 SD of each target (as Khamjan et al. 2026); 0 = off
 
 # ------------------------------------------------------------------ targets ----
 # column  = column in the borehole CSV
@@ -33,7 +34,7 @@ column = "SPT_N"
 unit = "blows/30 cm"
 log = true
 min = 0
-max = 100
+max = 60                          # as Khamjan et al. (2026): N > 60 treated as refusal
 
 [targets.Water_Content]
 column = "Water_Content_pct"

@@ -24,7 +24,7 @@ def test_sample_filters():
     s, info = H.make_samples(r, "SPT_N", S)
     assert list(s.y) == [5, 30]
     assert info == {"records_with_value": 5, "dropped_longer_than_3m": 1, "dropped_outside_depth": 1,
-                    "dropped_out_of_range": 1, "samples": 2}
+                    "dropped_out_of_range": 1, "dropped_beyond_sd": 0, "samples": 2}
     assert np.allclose(s.Mid_Elevation_m, [10 - 1.225, 10 - 14.725])
 
 
@@ -62,3 +62,9 @@ def test_su_uses_clay_samples_only():
                       "USCS": ["CH", "SM"], "UTM_Easting_m": 0.0, "UTM_Northing_m": 0.0, "Ground_Elevation_m": 10.0})
     s, info = H.make_samples(r, "Su", S)
     assert list(s.y) == [30] and info["dropped_other_uscs"] == 1
+
+
+def test_three_sd_outlier_dropped():
+    r = records([("B", d, d + 0.45, 10) for d in np.arange(0, 14, 0.5)] + [("B", 14.0, 14.45, 59)])
+    s, info = H.make_samples(r, "SPT_N", S)
+    assert info["dropped_beyond_sd"] == 1 and s.y.max() == 10
