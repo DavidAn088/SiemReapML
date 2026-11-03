@@ -101,15 +101,16 @@ depth_min_samples = 5             # slices with fewer training samples use the o
 [soil_type]
 # Soil type as an input (as Khamjan et al. 2026), tested honestly:
 #   training = the logged USCS group of the sample (Clay 1, Sand 0, other 0.5);
-#   CV test  = V3's out-of-fold prediction of the classifier at the sample's 0.5 m cell (same folds);
+#   CV test  = the classifier's out-of-fold prediction at the sample's 0.5 m cell (V3-clean notebook 03, same folds);
 #   external test = the thesis's final classifier (V3-clean notebook 05, frozen).
 clay = ["CL", "CH"]
 sand = ["SC", "SM", "SP"]
 cell_m = 0.5
 nearest_max_m = 1.0               # no prediction in the sample's cell: nearest predicted cell of the borehole within 1 m
-cv_model = "XGB"                  # the final classifier; V3 ran it on every block size
-v3_cv_predictions = "outputs/03_nested_cv/restricted/outer_predictions.csv"    # inside the V3 folder
-v3clean_folder = "E:/DavidAn/SiemReapML_V3clean"    # CHECK: the V3clean folder that holds outputs/05_final_model
+cv_model = "XGB"                  # the final classifier; it was run on every block size
+# The V3clean folder (the one with settings.toml and outputs/). ".." = put V5_regression INSIDE it.
+v3clean_folder = ".."
+cv_predictions = "outputs/03_spatial_cv/private/outer_predictions.csv"    # inside the V3clean folder
 
 [cv.n_trials]
 RF = 30

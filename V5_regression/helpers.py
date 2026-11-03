@@ -75,6 +75,8 @@ def load_settings(root: Path | None = None) -> dict:
         S["v3"]["folder"] = os.environ["V5_V3_FOLDER"]
     S["root"] = root
     S["v3_root"] = Path(S["v3"]["folder"])
+    if "soil_type" in S:                                  # relative paths are relative to this folder
+        S["v3clean_root"] = (root / S["soil_type"]["v3clean_folder"]).resolve()
     return S
 
 
@@ -356,12 +358,12 @@ _CV_SOIL = {}
 
 
 def v3_cv_soil(S: dict, block_m: int) -> pd.DataFrame:
-    """V3's out-of-fold Clay/Sand predictions of the classifier (soil_type.cv_model, no purge) at this
-    block size: BH_Code, cell, outer_fold, soil_pred."""
-    key = (str(S["v3_root"]), block_m)
+    """The classifier's out-of-fold Clay/Sand predictions (soil_type.cv_model, no purge) at this block
+    size, from V3-clean notebook 03 (identical to V3's): BH_Code, cell, outer_fold, soil_pred."""
+    key = (str(S["v3clean_root"]), block_m)
     if key not in _CV_SOIL:
         c = S["soil_type"]
-        p = pd.read_csv(S["v3_root"] / c["v3_cv_predictions"])
+        p = pd.read_csv(S["v3clean_root"] / c["cv_predictions"])
         p = p[(p.model == c["cv_model"]) & (p.block_m == block_m) & (p.purge_m == 0)]
         if "scenario" in p:
             p = p[p.scenario == "A"]
@@ -397,7 +399,7 @@ def load_classifier(S: dict):
     import sys
 
     import joblib
-    root = Path(S["soil_type"]["v3clean_folder"])
+    root = S["v3clean_root"]
     rec = json.loads((root / "outputs" / "05_final_model" / "final_model.json").read_text())
     path = root / "outputs" / "05_final_model" / "private" / rec["model_file"]
     if sha256(path) != rec["model_sha256"]:

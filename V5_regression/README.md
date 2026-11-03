@@ -21,8 +21,10 @@ hash-locked external-holdout boreholes, read from the V3 folder.
 
 ## How to run (school PC)
 
-1. Copy V3's `data\raw` borehole CSV into `V5_regression\data\raw` (see `data/raw/README.md`).
-2. Check two folders in `settings.toml`: `[v3] folder` (the V3 project) and `[soil_type] v3clean_folder` (the V3clean folder with `outputs/05_final_model`, used only in notebook 04).
+1. Put the `V5_regression` folder **inside the V3clean folder** (next to V3clean's `settings.toml`). V5 then finds
+   V3clean's frozen classifier and its out-of-fold predictions by itself (`[soil_type] v3clean_folder = ".."`).
+2. Copy the borehole CSV into `V5_regression\data\raw` (see `data/raw/README.md`). `[v3] folder` is the same V3 folder
+   as in V3clean's `settings.toml` (folds and holdout are read from there).
 3. Open Jupyter in the `V5_regression` folder (same Python environment as V3) and run in order:
 
 | Notebook | Time | |
