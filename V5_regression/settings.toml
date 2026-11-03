@@ -1,0 +1,97 @@
+# V5 regression settings: continuous soil parameters, 0-15 m, Downtown, under V3's spatial CV.
+# The folds and the 11 external-holdout boreholes are V3's (read from the V3 folder, never changed).
+
+[run]
+# quick = true runs a tiny version (1 outer fold, 2 Optuna trials, small models) to check the code.
+# Quick results are NEVER thesis results.
+quick = false
+seed = 20261103
+n_jobs = 4
+
+[v3]
+# V5 READS (never writes): data/folds/ (blockCV folds, block size), data/processed/external_holdout.csv
+# and config/external_holdout.lock.json
+folder = "E:/DavidAn/SiemReapML_V3_fresh_start/SiemReapML"
+
+[files]
+boreholes_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+boreholes_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+region_downtown = "Downtown"
+
+[samples]
+# One row = one sample record with a measured value. Its depth is the middle of the record.
+top_m = 0.0
+bottom_m = 15.0                   # middle depth must lie in [top_m, bottom_m]
+max_sample_length_m = 3.0         # longer records are not point values
+
+# ------------------------------------------------------------------ targets ----
+# column  = column in the borehole CSV
+# log     = true: models learn log(1 + value); every score is on the original scale
+# min/max = values outside are treated as errors and dropped (reported in notebook 01)
+[targets.SPT_N]
+column = "SPT_N"
+unit = "blows/30 cm"
+log = true
+min = 0
+max = 100
+
+[targets.Water_Content]
+column = "Water_Content_pct"
+unit = "%"
+log = false
+min = 0
+max = 150
+
+[targets.LL]
+column = "LL_pct"
+unit = "%"
+log = false
+min = 0
+max = 150
+
+[targets.PI]
+column = "PI_pct"
+unit = "%"
+log = false
+min = 0
+max = 100
+
+[cv]
+k = 5
+targets = ["SPT_N", "Water_Content", "LL", "PI"]
+models = ["RF", "XGB"]            # plus the depth-only reference "Depth" (no tuning)
+block_multiples = [1, 2, 3]       # V3: 106 m (main), 212 m, 318 m (sensitivity)
+depth_bin_m = 1.0                 # depth-only reference: training mean per 1 m depth slice
+depth_min_samples = 5             # slices with fewer training samples use the overall mean
+
+[cv.n_trials]
+RF = 30
+XGB = 30
+
+[inner_cv]
+# Inner folds = the other 4 outer folds; if one is too small, V3's backup inner folds are used.
+min_boreholes = 8
+min_samples = 30
+
+[quick]
+outer_folds = [1]
+n_trials = 2
+trees = 50
+
+# ------------------------------------------------------------ Optuna search spaces ----
+[space.RF]
+n_estimators = { type = "int", low = 200, high = 600, step = 100 }
+max_depth = { type = "int", low = 3, high = 30 }
+min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
+max_features = { type = "int", low = 1, high = 3 }
+max_samples = { type = "float", low = 0.5, high = 1.0 }
+
+[space.XGB]
+n_estimators = { type = "int", low = 100, high = 800, step = 50 }
+learning_rate = { type = "float", low = 0.01, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 10 }
+min_child_weight = { type = "float", low = 1.0, high = 30.0, log = true }
+subsample = { type = "float", low = 0.5, high = 1.0 }
+colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+gamma = { type = "float", low = 0.0, high = 5.0 }
