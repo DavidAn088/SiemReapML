@@ -11,7 +11,12 @@ Sections
   4. Nested spatial cross-validation
   5. Metrics and model selection
 
-Every model has the same three inputs (FEATURES):
+Inputs: FEATURES (Easting, Northing, mid elevation); models named "<RF|XGB>_soil" also get the
+soil type (Clay = 1, Sand = 0) as a 4th input, as Khamjan et al. (2026):
+  * training: the LOGGED type of the sample (USCS group; 0.5 when the record is neither group);
+  * outer test: the type PREDICTED by the classifier for that borehole when it was out of fold
+    (V3's out-of-fold XGB predictions, same folds), so classification errors are counted.
+    The score with the logged type is also kept (y_pred_logged), to show the difference.
   model.fit(X, y, depth)  and  model.predict(X, depth) = value on the original scale
 """
 
@@ -31,6 +36,25 @@ import pandas as pd
 warnings.filterwarnings("ignore", message="IProgress not found")
 
 FEATURES = ["UTM_Easting_m", "UTM_Northing_m", "Mid_Elevation_m"]
+SOIL = "soil_clay"          # 4th input of the *_soil models
+
+
+def kind(name: str) -> str:
+    """RF_soil -> RF"""
+    return name.split("_")[0]
+
+
+def uses_soil(name: str) -> bool:
+    return name.endswith("_soil")
+
+
+def design(df: pd.DataFrame, name: str, soil=None) -> np.ndarray:
+    """Model inputs. For *_soil models the soil column is `soil` if given, else the logged type."""
+    X = df[FEATURES].values
+    if not uses_soil(name):
+        return X
+    s = df["clay_logged"].fillna(0.5).values if soil is None else np.asarray(soil, float)
+    return np.c_[X, s]
 
 
 # =============================================================== 1. Settings and files ====
@@ -137,6 +161,9 @@ def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFr
                         "Ground_Elevation_m": r.Ground_Elevation_m.values,
                         "Mid_Elevation_m": (r.Ground_Elevation_m - mid).values,
                         "USCS": r.USCS.values if "USCS" in r else None, "y": r.value.values.astype(float)})
+    lab = S.get("soil_type", {})
+    clay, sand = set(lab.get("clay", ["CL", "CH"])), set(lab.get("sand", ["SC", "SM", "SP"]))
+    out["clay_logged"] = np.where(out.USCS.isin(clay), 1.0, np.where(out.USCS.isin(sand), 0.0, np.nan))
     info["samples"] = len(out)
     return out.sort_values(["BH_Code", "depth_m"]).reset_index(drop=True), info
 
@@ -214,7 +241,7 @@ def make_model(name: str, params: dict, seed: int, target: str, S: dict):
     p = dict(params)
     if S["run"]["quick"] and "n_estimators" in p:
         p["n_estimators"] = min(p["n_estimators"], S["quick"]["trees"])
-    return Tree(name, p, seed, S["run"]["n_jobs"], S["targets"][target]["log"])
+    return Tree(kind(name), p, seed, S["run"]["n_jobs"], S["targets"][target]["log"])
 
 
 def suggest(trial, space: dict) -> dict:
@@ -271,7 +298,7 @@ def inner_groups(train: pd.DataFrame, folds: pd.Series, k: int, block_m: int, S:
 
 
 def n_trials(name: str, S: dict) -> int:
-    return 0 if name == "Depth" else (S["quick"]["n_trials"] if S["run"]["quick"] else S["cv"]["n_trials"][name])
+    return 0 if name == "Depth" else (S["quick"]["n_trials"] if S["run"]["quick"] else S["cv"]["n_trials"][kind(name)])
 
 
 def rmse(y, p) -> float:
@@ -285,12 +312,12 @@ def tune(name, target, train, groups, seed, tpe_seed, S, on_trial=None) -> dict:
     import optuna
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    X, y, d = train[FEATURES].values, train.y.values, train.depth_m.values
+    X, y, d = design(train, name), train.y.values, train.depth_m.values
     ids = sorted(set(groups[groups > 0]))
     scored = np.isin(groups, ids)
 
     def objective(trial):
-        params = suggest(trial, S["space"][name])
+        params = suggest(trial, S["space"][kind(name)])
         oof = np.full(len(train), np.nan)
         for g in ids:
             val = groups == g
@@ -305,46 +332,144 @@ def tune(name, target, train, groups, seed, tpe_seed, S, on_trial=None) -> dict:
 
 
 def run_list(S: dict) -> list[dict]:
-    """Every target x block size x model (RF, XGB, Depth). Quick: main block only."""
+    """Every target x block size x model: RF, XGB, RF_soil, XGB_soil (not for targets limited to
+    one soil group, e.g. Su on clay) and the depth reference. Quick: main block only."""
     sizes = block_sizes(S)
     sizes = sizes[:1] if S["run"]["quick"] else sizes
-    return [{"target": t, "model": m, "block_m": b, "tag": f"{t}_{b}m_{m}"}
-            for t in S["cv"]["targets"] for b in sizes for m in [*S["cv"]["models"], "Depth"]]
+    runs = []
+    for t in S["cv"]["targets"]:
+        soil = [f"{m}_soil" for m in S["cv"]["models"]] if S["cv"].get("soil_type_models") and not S["targets"][t].get("uscs") else []
+        runs += [{"target": t, "model": m, "block_m": b, "tag": f"{t}_{b}m_{m}"}
+                 for b in sizes for m in [*S["cv"]["models"], *soil, "Depth"]]
+    return runs
 
+
+# ------------------------------------------------------------ predicted soil type ----
+
+def cell_of(depth_m, S: dict) -> np.ndarray:
+    """Index of V3's 0.5 m cell (0-15 m) that holds this depth."""
+    c = S["soil_type"]
+    return np.clip(np.floor(np.asarray(depth_m) / c["cell_m"]), 0, round(15 / c["cell_m"]) - 1).astype(int)
+
+
+_CV_SOIL = {}
+
+
+def v3_cv_soil(S: dict, block_m: int) -> pd.DataFrame:
+    """V3's out-of-fold Clay/Sand predictions of the classifier (soil_type.cv_model, no purge) at this
+    block size: BH_Code, cell, outer_fold, soil_pred."""
+    key = (str(S["v3_root"]), block_m)
+    if key not in _CV_SOIL:
+        c = S["soil_type"]
+        p = pd.read_csv(S["v3_root"] / c["v3_cv_predictions"])
+        p = p[(p.model == c["cv_model"]) & (p.block_m == block_m) & (p.purge_m == 0)]
+        if "scenario" in p:
+            p = p[p.scenario == "A"]
+        _CV_SOIL[key] = p[["BH_Code", "cell", "outer_fold", "y_pred"]].rename(columns={"y_pred": "soil_pred"})
+    return _CV_SOIL[key]
+
+
+def lookup_soil(samples: pd.DataFrame, cells: pd.DataFrame, S: dict) -> tuple[np.ndarray, dict]:
+    """Predicted type of each sample from cell predictions (BH_Code, cell, soil_pred): the sample's
+    own cell; else the nearest predicted cell of the same borehole within nearest_max_m; else 0.5."""
+    max_cells = int(round(S["soil_type"]["nearest_max_m"] / S["soil_type"]["cell_m"]))
+    by_bh = {code: g.set_index("cell").soil_pred for code, g in cells.groupby("BH_Code")}
+    out, n = np.full(len(samples), 0.5), {"own_cell": 0, "nearest_cell": 0, "unknown": 0}
+    for i, (code, c) in enumerate(zip(samples.BH_Code.values, cell_of(samples.depth_m.values, S))):
+        g = by_bh.get(code)
+        if g is not None and c in g.index:
+            out[i] = g[c]; n["own_cell"] += 1
+            continue
+        if g is not None and len(g):
+            d = np.abs(g.index.values - c)
+            if d.min() <= max_cells:
+                out[i] = g.iloc[int(np.argmin(d))]; n["nearest_cell"] += 1
+                continue
+        n["unknown"] += 1
+    return out, n
+
+
+def load_classifier(S: dict):
+    """The thesis's final Clay/Sand classifier (frozen, from V3-clean notebook 05) and its threshold.
+    V3-clean saved it with its own helpers.py, which is loaded here under that name only while the
+    file is opened."""
+    import importlib.util
+    import sys
+
+    import joblib
+    root = Path(S["soil_type"]["v3clean_folder"])
+    rec = json.loads((root / "outputs" / "05_final_model" / "final_model.json").read_text())
+    path = root / "outputs" / "05_final_model" / "private" / rec["model_file"]
+    if sha256(path) != rec["model_sha256"]:
+        raise RuntimeError("the V3-clean final model file has changed")
+    spec = importlib.util.spec_from_file_location("helpers", root / "helpers.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    old = sys.modules.get("helpers")
+    sys.modules["helpers"] = mod
+    try:
+        model = joblib.load(path)
+    finally:
+        if old is not None:
+            sys.modules["helpers"] = old
+    return model, float(rec["threshold"]), rec["model"]
+
+
+def classify(samples: pd.DataFrame, model, threshold: float, S: dict) -> np.ndarray:
+    """Clay (1) / Sand (0) from the classifier at each sample's 0.5 m cell (its inputs: Easting,
+    Northing, top elevation of the cell = ground elevation - cell top depth)."""
+    top = cell_of(samples.depth_m.values, S) * S["soil_type"]["cell_m"]
+    X = np.c_[samples.UTM_Easting_m.values, samples.UTM_Northing_m.values, samples.Ground_Elevation_m.values - top]
+    return (model.predict_proba(X)[:, 1] >= threshold).astype(float)
+
+
+# ------------------------------------------------------------ one outer fold ----
 
 def run_fold(run: dict, dev: pd.DataFrame, k: int, S: dict, on_trial=None) -> dict:
-    """One outer fold of one run: tune on the training boreholes, refit, predict fold k."""
+    """One outer fold of one run: tune on the training boreholes, refit, predict fold k.
+    *_soil models: trained with the logged soil type; tested with the classifier's out-of-fold
+    type (y_pred) and, for comparison, with the logged type (y_pred_logged)."""
     t0 = time.time()
+    name = run["model"]
     folds = load_folds(S, run["block_m"])
     train, test = outer_split(dev, folds, k)
     groups, source = inner_groups(train, folds, k, run["block_m"], S)
     seed = seed_for(S, run["tag"], k)
-    best = tune(run["model"], run["target"], train, groups, seed, seed_for(S, run["tag"], k, "tpe"), S, on_trial)
-    model = make_model(run["model"], best["params"], seed, run["target"], S).fit(
-        train[FEATURES].values, train.y.values, train.depth_m.values)
+    best = tune(name, run["target"], train, groups, seed, seed_for(S, run["tag"], k, "tpe"), S, on_trial)
+    model = make_model(name, best["params"], seed, run["target"], S).fit(
+        design(train, name), train.y.values, train.depth_m.values)
     pred = test[["BH_Code", "depth_m", *FEATURES, "y"]].copy()
-    pred["y_pred"] = model.predict(test[FEATURES].values, test.depth_m.values) if len(test) else []
+    soil_info = {}
+    if uses_soil(name) and len(test):
+        cv = v3_cv_soil(S, run["block_m"])
+        soil, soil_info = lookup_soil(test, cv[cv.outer_fold == k], S)
+        pred["soil_pred"], pred["soil_logged"] = soil, test.clay_logged.values
+        pred["y_pred"] = model.predict(design(test, name, soil), test.depth_m.values)
+        pred["y_pred_logged"] = model.predict(design(test, name), test.depth_m.values)
+    else:
+        pred["y_pred"] = model.predict(design(test, name), test.depth_m.values) if len(test) else []
     if len(test):
         tb = test.drop_duplicates("BH_Code").set_index("BH_Code")[FEATURES[:2]]
         trb = train.drop_duplicates("BH_Code").set_index("BH_Code")[FEATURES[:2]]
         pred["dist_nearest_train_m"] = pred.BH_Code.map(pd.Series(nearest_distance(tb.values, trb.values), index=tb.index)).values
-    pred = pred.assign(outer_fold=k, target=run["target"], block_m=run["block_m"], model=run["model"])
+    pred = pred.assign(outer_fold=k, target=run["target"], block_m=run["block_m"], model=name)
     info = {**run, "outer_fold": k, "inner_folds": source, "params": best["params"], "inner_rmse": best["inner_rmse"],
             "train_boreholes": int(train.BH_Code.nunique()), "train_samples": len(train),
             "test_boreholes": int(test.BH_Code.nunique()), "test_samples": len(test),
-            "seconds": round(time.time() - t0, 1)}
+            **{f"soil_{a}": v for a, v in soil_info.items()}, "seconds": round(time.time() - t0, 1)}
     return {"predictions": pred, "info": info, "trials": best["trials"], "model": model}
 
 
 def fit_final(name: str, target: str, dev: pd.DataFrame, block_m: int, S: dict, on_trial=None) -> dict:
-    """Final model: tune on ALL development boreholes (groups = the 5 outer folds), then train on all."""
+    """Final model: tune on ALL development boreholes (groups = the 5 outer folds), then train on all
+    (*_soil models with the logged soil type)."""
     folds = load_folds(S, block_m)
     groups = dev.BH_Code.map(folds).astype(int).values.copy()
     groups[groups == 0] = -1
     tag = f"final_{target}_{block_m}m_{name}"
     seed = seed_for(S, tag)
     best = tune(name, target, dev, groups, seed, seed_for(S, tag, "tpe"), S, on_trial)
-    model = make_model(name, best["params"], seed, target, S).fit(dev[FEATURES].values, dev.y.values, dev.depth_m.values)
+    model = make_model(name, best["params"], seed, target, S).fit(design(dev, name), dev.y.values, dev.depth_m.values)
     return {**best, "model": model}
 
 

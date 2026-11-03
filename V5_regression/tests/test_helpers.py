@@ -68,3 +68,17 @@ def test_three_sd_outlier_dropped():
     r = records([("B", d, d + 0.45, 10) for d in np.arange(0, 14, 0.5)] + [("B", 14.0, 14.45, 59)])
     s, info = H.make_samples(r, "SPT_N", S)
     assert info["dropped_beyond_sd"] == 1 and s.y.max() == 10
+
+
+def test_soil_lookup_own_then_nearest_then_unknown():
+    cells = pd.DataFrame({"BH_Code": ["A", "A"], "cell": [2, 10], "soil_pred": [1, 0]})
+    smp = pd.DataFrame({"BH_Code": ["A", "A", "A", "B"], "depth_m": [1.2, 4.3, 8.0, 1.0]})
+    soil, n = H.lookup_soil(smp, cells, S)
+    assert list(soil) == [1, 0, 0.5, 0.5] and n == {"own_cell": 1, "nearest_cell": 1, "unknown": 2}
+
+
+def test_soil_models_get_a_fourth_input():
+    df = pd.DataFrame({"UTM_Easting_m": [0.0], "UTM_Northing_m": [0.0], "Mid_Elevation_m": [5.0], "clay_logged": [np.nan]})
+    assert H.design(df, "XGB").shape == (1, 3)
+    assert H.design(df, "XGB_soil")[0, 3] == 0.5 and H.design(df, "RF_soil", [1.0])[0, 3] == 1.0
+    assert H.kind("RF_soil") == "RF"
