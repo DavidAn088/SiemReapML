@@ -56,9 +56,25 @@ log = false
 min = 0
 max = 100
 
+[targets.Void_Ratio]
+column = "Void_Ratio"
+unit = "-"
+log = false
+min = 0.1
+max = 4.0
+
+[targets.Wet_Unit_Weight]
+column = "Wet_Unit_Weight_kN_m3"
+unit = "kN/m3"
+log = false
+min = 12
+max = 25
+
 [cv]
 k = 5
-targets = ["SPT_N", "Water_Content", "LL", "PI"]
+# Chosen for settlement from groundwater lowering (InSAR): e0, w, LL/PI (Cc correlations),
+# unit weight (stress change), SPT-N (stiffness of sand layers)
+targets = ["Water_Content", "Void_Ratio", "LL", "PI", "Wet_Unit_Weight", "SPT_N"]
 models = ["RF", "XGB"]            # plus the depth-only reference "Depth" (no tuning)
 block_multiples = [1, 2, 3]       # V3: 106 m (main), 212 m, 318 m (sensitivity)
 depth_bin_m = 1.0                 # depth-only reference: training mean per 1 m depth slice
