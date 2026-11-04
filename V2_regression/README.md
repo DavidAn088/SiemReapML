@@ -10,7 +10,7 @@ V3's 11 hash-locked external-holdout boreholes, read from the V3 folder.
 | Targets | water content, void ratio, LL, PI, wet unit weight, specific gravity, SPT-N, Su (clay samples) |
 | Samples | one row = one sample record with a value and a Clay/Sand symbol; record ≤ 3 m long, middle depth 0-15 m, value in the target's min/max (SPT-N ≤ 60), then values beyond mean ± 3 SD dropped |
 | Inputs | Easting, Northing, mid elevation (= ground elevation − middle depth), logged soil class |
-| Models | RF, XGB (Optuna, 30 trials, inner out-of-fold RMSE) and a depth-only reference (training mean per 1 m slice) |
+| Models | RF, XGB, MLP, GWRF, GWXGB (as V3; Optuna, 30 trials, 20 for the GW models, inner out-of-fold RMSE) and a depth-only reference (training mean per 1 m slice) |
 | Scores | RMSE, MAE, R², bias, Spearman per outer fold and pooled; skill vs depth-only = 1 − RMSE / RMSE_depth |
 | Model choice | per target: lowest mean RMSE; within one SE, lowest fold SD, then lowest MAE |
 | External test | V3's 11 holdout boreholes, scored once (notebook 04, locked) |
@@ -29,7 +29,7 @@ here (V5 measures that case).
 | Notebook | Time | |
 |---|---|---|
 | `01_data` | < 1 min | samples per target, depth profiles, values by soil class |
-| `02_spatial_cv` | pilot ~1 min, then about 1 h | `PILOT = True` first, then `PILOT = False`. Saves after every fold |
+| `02_spatial_cv` | pilot ~1 min, then about 3-5 h (estimate; GWRF is the slowest) | `PILOT = True` first, then `PILOT = False`. Saves after every fold; `RUN_TARGETS` runs one target at a time |
 | `03_results` | < 1 min | scores, skill vs depth, model choice, figures |
 | `04_final_external` | 5-15 min per target | final models (frozen) and the external test, **once** |
 

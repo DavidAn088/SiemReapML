@@ -8,7 +8,7 @@ The same Downtown boreholes, V3's 106 m blockCV folds and V3's 11 external-holdo
 Sections
   1. Settings and files
   2. Boreholes -> samples of one target
-  3. Models (RF, XGB, depth-only reference)
+  3. Models (RF, XGB, MLP, GWRF, GWXGB, depth-only reference)
   4. Nested spatial cross-validation
   5. Metrics and model selection
 
@@ -216,13 +216,145 @@ class Tree:
         return np.expm1(p) if self.log else p
 
 
+def _fwd(y, log):
+    return np.log1p(y) if log else np.asarray(y, float)
+
+
+def _inv(p, log):
+    return np.expm1(p) if log else p
+
+
+class MLP:
+    """MLP regressor; inputs and target standardised on the training data; no early stopping (its
+    random validation rows would mix samples of one borehole)."""
+
+    def __init__(self, params, seed, log):
+        self.params, self.seed, self.log = dict(params), seed, log
+
+    def fit(self, X, y, depth=None):
+        from sklearn.exceptions import ConvergenceWarning
+        from sklearn.neural_network import MLPRegressor
+        from sklearn.preprocessing import StandardScaler
+        p = dict(self.params)
+        layers = (p.pop("n_units"),) * p.pop("n_layers")
+        y = _fwd(y, self.log)
+        self.xs_ = StandardScaler().fit(X)
+        self.ym_, self.ysd_ = float(np.mean(y)), float(np.std(y)) or 1.0
+        self.model_ = MLPRegressor(hidden_layer_sizes=layers, early_stopping=False, random_state=self.seed, **p)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ConvergenceWarning)
+            self.model_.fit(self.xs_.transform(X), (y - self.ym_) / self.ysd_)
+        return self
+
+    def predict(self, X, depth=None):
+        return _inv(self.model_.predict(self.xs_.transform(X)) * self.ysd_ + self.ym_, self.log)
+
+
+class GW:
+    """Geographically weighted RF / XGBoost regression (GWRF, GWXGB), as V3's GW classifiers.
+
+    * Every training borehole is an anchor with a local model trained on the samples of its k nearest
+      boreholes (k grows until there are `min_samples` samples, up to `max_neighbours`; otherwise
+      the anchor uses the global model).
+    * Kernel 'uniform': weight 1; 'bisquare': (1 - (d/b)^2)^2, b = distance to the (k+1)-th borehole.
+    * A sample uses the local model of its nearest anchor, blended with a global model:
+      y = alpha * y_local + (1 - alpha) * y_global.
+    * Local models are trained when a prediction first needs them (each with its own fixed seed)."""
+
+    def __init__(self, base, learner, k, alpha, kernel, n_local, n_global, S, seed, log):
+        self.base, self.learner, self.k, self.alpha, self.kernel = base, dict(learner), k, alpha, kernel
+        self.n_local, self.n_global, self.seed, self.log = n_local, n_global, seed, log
+        self.g, self.n_jobs = S["gw"], S["run"]["n_jobs"]
+
+    def _new(self, n_trees, seed):
+        p = self.learner
+        if self.base == "rf":
+            from sklearn.ensemble import RandomForestRegressor
+            return RandomForestRegressor(n_estimators=n_trees, max_depth=p.get("max_depth"),
+                                         min_samples_leaf=p.get("min_samples_leaf", 1),
+                                         max_features=p.get("max_features", 1), random_state=seed, n_jobs=1)
+        from xgboost import XGBRegressor
+        return XGBRegressor(n_estimators=n_trees, learning_rate=p.get("learning_rate", 0.1),
+                            max_depth=p.get("max_depth", 4), min_child_weight=p.get("min_child_weight", 1.0),
+                            subsample=p.get("subsample", 1.0), reg_lambda=p.get("reg_lambda", 1.0),
+                            tree_method="hist", n_jobs=1, random_state=seed, objective="reg:squarederror")
+
+    def fit(self, X, y, depth=None):
+        from scipy.spatial import cKDTree
+        X, y = np.asarray(X, float), _fwd(y, self.log)
+        self.anchors_, inv = np.unique(np.round(X[:, :2], 2), axis=0, return_inverse=True)
+        self.X_, self.y_, self.site_ = X, y, inv.ravel()
+        n = len(self.anchors_)
+        self.global_ = self._new(self.n_global, self.seed).fit(X, y)
+        self.tree_ = cKDTree(self.anchors_)
+        kq = min(self.g["max_neighbours"] + 1, n)
+        d, i = self.tree_.query(self.anchors_, k=kq)
+        self.dist_, self.nbr_, self.kq_ = np.atleast_2d(d), np.atleast_2d(i), kq
+        counts = np.bincount(self.site_, minlength=n)
+        self.size_ = np.array([self._neighbourhood(a, counts) for a in range(n)])
+        self.fallback_rate_ = float(np.mean(self.size_ < 0))
+        self.local_ = {}
+        return self
+
+    def _neighbourhood(self, a, counts):
+        g, n = self.g, len(self.anchors_)
+        k = max(g["min_boreholes"], min(self.k, n))
+        while True:
+            if k >= g["min_boreholes"] and counts[self.nbr_[a, :k]].sum() >= g["min_samples"]:
+                return int(min(k, n))
+            if k >= min(g["max_neighbours"], n):
+                return -1
+            k += 1
+
+    def _fit_local(self, a):
+        k = self.size_[a]
+        if k < 0:
+            return None
+        d = self.dist_[a]
+        b = d[k] if k < self.kq_ else d[k - 1] * 1.01 + 1e-6
+        w_site = (1 - (d[:k] / max(b, 1e-9)) ** 2) ** 2 if self.kernel == "bisquare" else np.ones(k)
+        wmap = np.zeros(len(self.anchors_))
+        wmap[self.nbr_[a, :k]] = w_site
+        w = wmap[self.site_]
+        use = w > 0
+        return self._new(self.n_local, self.seed + 1 + int(a)).fit(self.X_[use], self.y_[use], sample_weight=w[use])
+
+    def predict(self, X, depth=None):
+        from joblib import Parallel, delayed
+        X = np.asarray(X, float)
+        y_global = self.global_.predict(X)
+        anchor = self.tree_.query(np.round(X[:, :2], 2))[1]
+        todo = [int(a) for a in np.unique(anchor) if int(a) not in self.local_]
+        fitted = Parallel(n_jobs=self.n_jobs, prefer="threads")(delayed(self._fit_local)(a) for a in todo)
+        self.local_.update(zip(todo, fitted))
+        y_local = y_global.copy()
+        for a in np.unique(anchor):
+            f = self.local_[int(a)]
+            if f is not None:
+                sel = anchor == a
+                y_local[sel] = f.predict(X[sel])
+        return _inv(self.alpha * y_local + (1 - self.alpha) * y_global, self.log)
+
+
 def make_model(name: str, params: dict, seed: int, target: str, S: dict):
     if name == "Depth":
         return Depth(S["cv"]["depth_bin_m"], S["cv"]["depth_min_samples"])
-    p = dict(params)
-    if S["run"]["quick"] and "n_estimators" in p:
+    p, quick, log = dict(params), S["run"]["quick"], S["targets"][target]["log"]
+    if quick and "n_estimators" in p:
         p["n_estimators"] = min(p["n_estimators"], S["quick"]["trees"])
-    return Tree(name, p, seed, S["run"]["n_jobs"], S["targets"][target]["log"])
+    if quick and "max_iter" in p:
+        p["max_iter"] = min(p["max_iter"], 200)
+    if name in ("RF", "XGB"):
+        return Tree(name, p, seed, S["run"]["n_jobs"], log)
+    if name == "MLP":
+        return MLP(p, seed, log)
+    g = S["gw"]
+    k, alpha, kernel = p.pop("k_neighbours"), p.pop("alpha"), p.pop("kernel")
+    if name == "GWRF":
+        n_local = min(g["local_rf_trees"], 30) if quick else g["local_rf_trees"]
+        return GW("rf", p, k, alpha, kernel, n_local, 3 * n_local, S, seed, log)
+    n = min(p.pop("n_estimators"), g["local_xgb_rounds_max"])
+    return GW("xgb", p, k, alpha, kernel, n, n, S, seed, log)
 
 
 def suggest(trial, space: dict) -> dict:
@@ -313,7 +445,7 @@ def tune(name, target, train, groups, seed, tpe_seed, S, on_trial=None) -> dict:
 
 
 def run_list(S: dict) -> list[dict]:
-    """Every target x model (RF, XGB, depth reference) on the main block size (106 m)."""
+    """Every target x model (RF, XGB, MLP, GWRF, GWXGB, depth reference) on the main block size (106 m)."""
     b = block_sizes(S)[0]
     return [{"target": t, "model": m, "block_m": b, "tag": f"{t}_{b}m_{m}"}
             for t in S["cv"]["targets"] for m in [*S["cv"]["models"], "Depth"]]

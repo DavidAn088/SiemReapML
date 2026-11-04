@@ -54,3 +54,18 @@ def test_selection_rule_within_one_se():
     summ = H.summary(f)
     c = H.select_model(summ, "T", 106)
     assert c["lowest_mean"] == "RF" and c["selected"] == "XGB"
+
+
+def test_all_five_models_fit_and_predict():
+    rng = np.random.default_rng(0)
+    n = 30 * 12
+    X = np.c_[np.repeat(rng.uniform(0, 1000, (30, 2)), 12, axis=0), rng.uniform(0, 15, n), rng.integers(0, 2, n)]
+    y = 5 + X[:, 2] + rng.normal(0, 1, n)
+    params = {"RF": {"n_estimators": 50}, "XGB": {"n_estimators": 50},
+              "MLP": {"n_layers": 1, "n_units": 8, "max_iter": 200},
+              "GWRF": {"k_neighbours": 10, "alpha": 0.5, "kernel": "bisquare", "max_depth": 5},
+              "GWXGB": {"k_neighbours": 10, "alpha": 0.5, "kernel": "uniform", "n_estimators": 50}}
+    for name, p in params.items():
+        m = H.make_model(name, p, 1, "SPT_N", S).fit(X, y)
+        pred = m.predict(X)
+        assert pred.shape == (n,) and np.isfinite(pred).all() and H.rmse(y, pred) < 3, name

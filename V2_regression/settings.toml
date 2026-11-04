@@ -93,7 +93,7 @@ k = 5
 # unit weight (stress change), SPT-N (stiffness of sand layers), Su of the clay (soft-clay
 # strength; correlates with stiffness and OCR), Gs (check of e0 = w Gs)
 targets = ["Water_Content", "Void_Ratio", "LL", "PI", "Wet_Unit_Weight", "Specific_Gravity", "SPT_N", "Su"]
-models = ["RF", "XGB"]            # plus the depth-only reference "Depth" (no tuning)
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]   # plus the depth-only reference "Depth" (no tuning)
 block_multiples = [1]             # V3's 106 m blocks only
 depth_bin_m = 1.0                 # depth-only reference: training mean per 1 m slice
 depth_min_samples = 5             # slices with fewer training samples use the overall mean
@@ -106,6 +106,17 @@ sand = ["SC", "SM", "SP"]         # 0
 [cv.n_trials]
 RF = 30
 XGB = 30
+MLP = 30
+GWRF = 20
+GWXGB = 20
+
+[gw]
+# Geographically weighted models (as V3): local model per training borehole from its k nearest boreholes
+min_boreholes = 5
+min_samples = 20                  # a neighbourhood needs at least this many samples, else the global model
+max_neighbours = 80
+local_rf_trees = 100
+local_xgb_rounds_max = 300
 
 [inner_cv]
 # Inner folds = the other 4 outer folds; if one is too small, V3's backup inner folds are used.
@@ -122,7 +133,7 @@ trees = 50
 n_estimators = { type = "int", low = 200, high = 600, step = 100 }
 max_depth = { type = "int", low = 3, high = 30 }
 min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
-max_features = { type = "int", low = 1, high = 3 }
+max_features = { type = "int", low = 1, high = 4 }
 max_samples = { type = "float", low = 0.5, high = 1.0 }
 
 [space.XGB]
@@ -134,3 +145,31 @@ subsample = { type = "float", low = 0.5, high = 1.0 }
 colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
 reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
 gamma = { type = "float", low = 0.0, high = 5.0 }
+
+[space.MLP]
+n_layers = { type = "int", low = 1, high = 3 }
+n_units = { type = "int", low = 8, high = 128, log = true }
+activation = { type = "categorical", choices = ["relu", "tanh"] }
+alpha = { type = "float", low = 1e-6, high = 0.1, log = true }
+learning_rate_init = { type = "float", low = 1e-4, high = 1e-2, log = true }
+batch_size = { type = "categorical", choices = [32, 64, 128] }
+max_iter = { type = "int", low = 200, high = 1000, step = 100 }
+
+[space.GWRF]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+max_depth = { type = "int", low = 3, high = 20 }
+min_samples_leaf = { type = "int", low = 1, high = 30, log = true }
+max_features = { type = "int", low = 1, high = 4 }
+
+[space.GWXGB]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+n_estimators = { type = "int", low = 50, high = 300, step = 50 }
+learning_rate = { type = "float", low = 0.03, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 6 }
+min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
+subsample = { type = "float", low = 0.6, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
