@@ -63,8 +63,24 @@ def load_settings(root: Path | None = None) -> dict:
         S["v3"]["folder"] = os.environ["V5_V3_FOLDER"]
     S["root"] = root
     S["v3_root"] = Path(S["v3"]["folder"])
-    S["v3clean_root"] = (root / S["classifier"]["v3clean_folder"]).resolve()
+    S["v3clean_root"] = find_v3clean(root, S)
     return S
+
+
+def find_v3clean(root: Path, S: dict) -> Path:
+    """The V3-clean folder: [classifier] v3clean_folder if it holds the classifier models, otherwise
+    the first folder near V4 (up to 3 levels below the folder that holds V4) that does."""
+    c = S["classifier"]
+    want = c["fold_models"].format(k=1)
+    first = (root / c["v3clean_folder"]).resolve()
+    if (first / want).exists():
+        return first
+    base = root.parent
+    for depth in range(4):
+        for d in sorted(base.glob("/".join(["*"] * depth))) if depth else [base]:
+            if d.is_dir() and d != root and (d / want).exists():
+                return d.resolve()
+    return first          # not found: load_classifiers() reports the missing files
 
 
 def out_dir(S: dict, step: str, private: bool = False) -> Path:

@@ -88,7 +88,8 @@ layer_m = 1.5
 
 [classifier]
 # The Clay/Sand classifier of V3-clean gives the soil input P(Clay).
-# ".." = put V4_regression INSIDE the V3clean folder (next to its settings.toml).
+# The V3clean folder (with settings.toml, helpers.py, outputs/). If the classifier models are not found
+# there, V4 searches the folders next to V4_regression (3 levels deep) by itself.
 v3clean_folder = ".."
 fold_models = "outputs/03_spatial_cv/private/models/A_106m_p0_XGB_fold{k}.joblib"   # out-of-fold models (training, CV)
 final_json = "outputs/05_final_model/final_model.json"                             # final model (holdout test)
