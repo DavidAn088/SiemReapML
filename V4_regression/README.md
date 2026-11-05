@@ -19,8 +19,8 @@ in 3D on the classifier's grid.
 1. Put the `V4_regression` folder **inside the V3clean folder** (next to V3clean's `settings.toml`). V4 reads
    V3clean's out-of-fold classifier models (`outputs/03_spatial_cv/private/models/`) and final model.
 2. Copy the borehole CSV into `V4_regression\data\raw`. Check two paths in `settings.toml`: `[v3] folder`
-   (the V3 project: folds and holdout) and `[map] grid_csv` (the classifier grid, set to
-   `D:/ML Thesis-Downtown/Soil Classification Downtown/siemreap_3d_points_120bh_50m.csv`).
+   (the V3 project: folds and holdout). Copy the classifier grid `siemreap_3d_points_120bh_50m.csv` into
+   `data\raw` too (or set `[map] grid_csv` to its full path).
 3. Open Jupyter in `V4_regression` and run in order:
 
 | Notebook | Time | |

@@ -96,7 +96,7 @@ cell_m = 0.5
 
 [map]
 # The classifier's 3D grid (X, Y, depth_top_m, ground_m, p_clay, dist_nearest_bh_m, reliability_zone)
-grid_csv = "D:/ML Thesis-Downtown/Soil Classification Downtown/siemreap_3d_points_120bh_50m.csv"
+grid_csv = "data/raw/siemreap_3d_points_120bh_50m.csv"   # relative = inside V4_regression, or a full path like "E:/folder/file.csv"
 
 [soil_class]
 # Logged USCS groups: only reported (logged Clay share of each layer) and used for the Su scope; not an input.
