@@ -1,0 +1,13 @@
+# The repository is public: raw data and anything that shows borehole locations stay local.
+data/raw/*
+!data/raw/README.md
+data/processed/
+data/processed_quick/
+data/folds/
+data/folds_quick/
+data/r_settings.json
+outputs/**/private/
+outputs_quick/
+__pycache__/
+.ipynb_checkpoints/
+.Rhistory

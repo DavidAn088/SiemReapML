@@ -122,12 +122,12 @@ def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFr
     long_ = (r.Depth_To_m - r.Depth_From_m) > s["max_sample_length_m"]
     outside = (mid < s["top_m"]) | (mid > s["bottom_m"])
     bad = (r.value < t["min"]) | (r.value > t["max"])
+    info |= {"dropped_longer_than_3m": int(long_.sum()), "dropped_outside_depth": int((outside & ~long_).sum()),
+             "dropped_out_of_range": int((bad & ~long_ & ~outside).sum())}
     if t.get("uscs"):                                    # e.g. Su on clay samples only
         other = ~r.USCS.isin(t["uscs"]) & ~long_ & ~outside & ~bad
         info["dropped_other_uscs"] = int(other.sum())
         bad = bad | other
-    info |= {"dropped_longer_than_3m": int(long_.sum()), "dropped_outside_depth": int((outside & ~long_).sum()),
-             "dropped_out_of_range": int((bad & ~long_ & ~outside).sum())}
     keep = ~long_ & ~outside & ~bad
     k_sd = s.get("outlier_sd")
     if k_sd:                                             # Khamjan et al. (2026): drop values beyond mean +- 3 SD
