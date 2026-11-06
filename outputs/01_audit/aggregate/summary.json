@@ -1,0 +1,196 @@
+{
+  "input_sha256": "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72",
+  "records": 4269,
+  "fields": 41,
+  "boreholes": 189,
+  "projects": 73,
+  "boreholes_by_region": {
+    "Downtown": 120,
+    "Unassigned": 40,
+    "Downtown_5km": 25,
+    "Downtown_10km": 4
+  },
+  "projects_by_region": {
+    "Downtown": 58,
+    "Downtown_10km": 3,
+    "Downtown_5km": 10,
+    "Unassigned": 6
+  },
+  "ground_elevation_m_by_region": {
+    "Downtown": {
+      "min": 10.24,
+      "50%": 15.27,
+      "max": 23.39
+    },
+    "Downtown_10km": {
+      "min": 1.5,
+      "50%": 29.74,
+      "max": 33.55
+    },
+    "Downtown_5km": {
+      "min": 7.59,
+      "50%": 9.38,
+      "max": 19.48
+    },
+    "Unassigned": {
+      "min": 1.5,
+      "50%": 13.14,
+      "max": 40.14
+    }
+  },
+  "borehole_max_depth_m_by_region": {
+    "Downtown": {
+      "min": 5.05,
+      "50%": 19.95,
+      "max": 40.95
+    },
+    "Downtown_10km": {
+      "min": 15.45,
+      "50%": 19.0,
+      "max": 20.1
+    },
+    "Downtown_5km": {
+      "min": 5.05,
+      "50%": 19.95,
+      "max": 39.45
+    },
+    "Unassigned": {
+      "min": 15.45,
+      "50%": 15.45,
+      "max": 19.95
+    }
+  },
+  "boreholes_shallower_than_15m": 8,
+  "elevation_values_with_more_than_2dp": 187,
+  "coordinate_text_formats": {
+    "latlon_text": 120,
+    "utm48n_text": 65,
+    "missing": 4
+  },
+  "coordinate_text_vs_utm_over_5m": 6,
+  "lab_tested_with_uscs": 1889,
+  "lab_uscs_group_inconsistent": 43,
+  "lab_fines_within_45_55pct_share": 0.235,
+  "preview_rule": {
+    "cell_m": 0.5,
+    "min_cell_coverage": 0.5,
+    "max_interval_m": 3.0
+  },
+  "preview_labelled_cells_by_region": {
+    "Downtown": 2064,
+    "Unassigned": 571,
+    "Downtown_5km": 453,
+    "Downtown_10km": 64
+  },
+  "preview_clay_share_by_region": {
+    "Downtown": 0.482,
+    "Downtown_10km": 0.531,
+    "Downtown_5km": 0.415,
+    "Unassigned": 0.928
+  },
+  "preview_conflicting_cells": 0,
+  "preview_boreholes_with_labels_by_region": {
+    "Downtown": 120,
+    "Downtown_10km": 4,
+    "Downtown_5km": 23,
+    "Unassigned": 40
+  },
+  "preview_downtown_cells_per_bh": {
+    "min": 9.0,
+    "50%": 17.0,
+    "max": 30.0
+  },
+  "preview_downtown_bh_all_clay": 6,
+  "preview_downtown_bh_all_sand": 12,
+  "spatial": {
+    "downtown_extent_m": {
+      "easting": 9275,
+      "northing": 6824
+    },
+    "downtown_nn_distance_m": {
+      "min": 5.8,
+      "p10": 13.7,
+      "p25": 23.8,
+      "median": 51.0,
+      "p75": 150.8,
+      "p90": 441.9,
+      "max": 1332.3
+    },
+    "downtown_nn_below_m": {
+      "10": 6,
+      "25": 36,
+      "50": 60,
+      "100": 72,
+      "200": 96,
+      "300": 99
+    },
+    "single_linkage_site_clusters": {
+      "25": {
+        "clusters": 101,
+        "largest": 3,
+        "singletons": 84
+      },
+      "50": {
+        "clusters": 84,
+        "largest": 5,
+        "singletons": 60
+      },
+      "100": {
+        "clusters": 75,
+        "largest": 6,
+        "singletons": 48
+      },
+      "200": {
+        "clusters": 50,
+        "largest": 17,
+        "singletons": 24
+      },
+      "300": {
+        "clusters": 46,
+        "largest": 26,
+        "singletons": 21
+      }
+    },
+    "square_grid_planning_diagnostic": {
+      "100": {
+        "occupied_cells": 88,
+        "max_bh_per_cell": 5,
+        "median_dist_to_nearest_bh_in_other_cell_m": 149,
+        "bh_with_other_cell_neighbour_within_25m": 6,
+        "bh_with_other_cell_neighbour_within_100m": 38
+      },
+      "200": {
+        "occupied_cells": 75,
+        "max_bh_per_cell": 5,
+        "median_dist_to_nearest_bh_in_other_cell_m": 182,
+        "bh_with_other_cell_neighbour_within_25m": 2,
+        "bh_with_other_cell_neighbour_within_100m": 22
+      },
+      "300": {
+        "occupied_cells": 68,
+        "max_bh_per_cell": 6,
+        "median_dist_to_nearest_bh_in_other_cell_m": 319,
+        "bh_with_other_cell_neighbour_within_25m": 0,
+        "bh_with_other_cell_neighbour_within_100m": 13
+      }
+    },
+    "Downtown_5km_dist_to_nearest_downtown_bh_m": {
+      "n": 25,
+      "min": 1600,
+      "median": 3465,
+      "max": 7511
+    },
+    "Downtown_10km_dist_to_nearest_downtown_bh_m": {
+      "n": 4,
+      "min": 6170,
+      "median": 6441,
+      "max": 11182
+    },
+    "Unassigned_dist_to_nearest_downtown_bh_m": {
+      "n": 40,
+      "min": 13407,
+      "median": 13850,
+      "max": 19984
+    }
+  }
+}

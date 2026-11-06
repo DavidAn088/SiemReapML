@@ -1,0 +1,13 @@
+Region,depth_band,cells,clay_share
+Downtown,0-5 m,789,0.596
+Downtown,5-10 m,595,0.529
+Downtown,10-15 m,680,0.307
+Downtown_10km,0-5 m,21,0.619
+Downtown_10km,5-10 m,19,0.579
+Downtown_10km,10-15 m,24,0.417
+Downtown_5km,0-5 m,153,0.614
+Downtown_5km,5-10 m,154,0.325
+Downtown_5km,10-15 m,146,0.301
+Unassigned,0-5 m,206,0.947
+Unassigned,5-10 m,171,0.936
+Unassigned,10-15 m,194,0.902

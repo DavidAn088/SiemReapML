@@ -1,0 +1,11 @@
+# Windows / macOS / Linux:  conda env create -f environment.yml  &&  conda activate siemreap-ml
+# All packages come from pip wheels (pinned in requirements.txt); the rasterio and pyogrio wheels
+# carry their own GDAL, so no separate GDAL install is needed (and none should be mixed in).
+name: siemreap-ml
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip
+  - pip:
+      - -r requirements.txt

@@ -1,0 +1,84 @@
+"""Checks of the V5 regression rules in helpers.py.  Run:  python -m pytest -q tests"""
+
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+import helpers as H  # noqa: E402
+
+S = H.load_settings(ROOT)
+
+
+def records(rows):
+    df = pd.DataFrame(rows, columns=["BH_Code", "Depth_From_m", "Depth_To_m", "SPT_N"])
+    return df.assign(UTM_Easting_m=0.0, UTM_Northing_m=0.0, Ground_Elevation_m=10.0, USCS="CL", Region="Downtown")
+
+
+def test_sample_filters():
+    r = records([("B", 1.0, 1.45, 5), ("B", 2.0, 6.0, 8), ("B", 15.0, 15.45, 20), ("B", 3.0, 3.45, 500),
+                 ("B", 4.0, 4.45, None), ("B", 14.5, 14.95, 30)])
+    s, info = H.make_samples(r, "SPT_N", S)
+    assert list(s.y) == [5, 30]
+    assert info == {"records_with_value": 5, "dropped_longer_than_3m": 1, "dropped_outside_depth": 1,
+                    "dropped_out_of_range": 1, "dropped_beyond_sd": 0, "samples": 2}
+    assert np.allclose(s.Mid_Elevation_m, [10 - 1.225, 10 - 14.725])
+
+
+def test_depth_reference_uses_slice_means_and_overall_mean():
+    m = H.Depth(1.0, 2).fit(None, [1, 3, 10], [0.2, 0.7, 5.5])
+    assert np.allclose(m.predict(None, [0.9, 5.1, 9.0]), [2, 14 / 3, 14 / 3])
+
+
+def test_log_target_is_scored_on_original_scale():
+    X = np.c_[np.arange(50.0), np.zeros(50), np.zeros(50)]
+    y = np.arange(50.0)
+    m = H.make_model("RF", {"n_estimators": 50, "min_samples_leaf": 1}, 1, "SPT_N", S).fit(X, y)
+    assert np.abs(m.predict(X) - y).max() < 5
+
+
+def test_sets():
+    smp = pd.DataFrame({"BH_Code": ["A", "B", "C"]})
+    sets = H.assign_sets(smp, ["A"], pd.Series({"A": 1, "B": 2}))
+    assert list(sets) == ["external", "development", "no_fold"]
+
+
+def test_selection_rule_within_one_se():
+    f = pd.DataFrame({"target": "T", "block_m": 106, "model": ["RF"] * 5 + ["XGB"] * 5 + ["Depth"] * 5,
+                      "outer_fold": list(range(1, 6)) * 3,
+                      "rmse": [1, 3, 1, 3, 2] + [2.1, 2.1, 2.1, 2.1, 2.1] + [4, 4, 4, 4, 4],
+                      "mae": 1.0, "r2": 0.0, "bias": 0.0, "spearman": 0.0})
+    summ = H.summary(f)
+    c = H.select_model(summ, "T", 106)
+    assert c["lowest_mean"] == "RF" and c["selected"] == "XGB"
+    assert np.isclose(summ.set_index("model").skill_vs_depth["RF"], 0.5)
+
+
+def test_su_uses_clay_samples_only():
+    r = pd.DataFrame({"BH_Code": "B", "Depth_From_m": [1.0, 2.0], "Depth_To_m": [1.45, 2.45], "Su_kPa": [30, 40],
+                      "USCS": ["CH", "SM"], "UTM_Easting_m": 0.0, "UTM_Northing_m": 0.0, "Ground_Elevation_m": 10.0})
+    s, info = H.make_samples(r, "Su", S)
+    assert list(s.y) == [30] and info["dropped_other_uscs"] == 1
+
+
+def test_three_sd_outlier_dropped():
+    r = records([("B", d, d + 0.45, 10) for d in np.arange(0, 14, 0.5)] + [("B", 14.0, 14.45, 59)])
+    s, info = H.make_samples(r, "SPT_N", S)
+    assert info["dropped_beyond_sd"] == 1 and s.y.max() == 10
+
+
+def test_soil_lookup_own_then_nearest_then_unknown():
+    cells = pd.DataFrame({"BH_Code": ["A", "A"], "cell": [2, 10], "soil_pred": [1, 0]})
+    smp = pd.DataFrame({"BH_Code": ["A", "A", "A", "B"], "depth_m": [1.2, 4.3, 8.0, 1.0]})
+    soil, n = H.lookup_soil(smp, cells, S)
+    assert list(soil) == [1, 0, 0.5, 0.5] and n == {"own_cell": 1, "nearest_cell": 1, "unknown": 2}
+
+
+def test_soil_models_get_a_fourth_input():
+    df = pd.DataFrame({"UTM_Easting_m": [0.0], "UTM_Northing_m": [0.0], "Mid_Elevation_m": [5.0], "clay_logged": [np.nan]})
+    assert H.design(df, "XGB").shape == (1, 3)
+    assert H.design(df, "XGB_soil")[0, 3] == 0.5 and H.design(df, "RF_soil", [1.0])[0, 3] == 1.0
+    assert H.kind("RF_soil") == "RF"
