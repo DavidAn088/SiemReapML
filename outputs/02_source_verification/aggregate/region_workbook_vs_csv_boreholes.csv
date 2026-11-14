@@ -1,0 +1,6 @@
+Region_wb,(blank),Downtown,Downtown_10km,Downtown_5km,All
+(blank),0,36,0,3,39
+Buffer_10km,38,0,0,0,38
+Buffer_5km,2,0,0,10,12
+City,0,84,4,12,100
+All,40,120,4,25,189

@@ -1,0 +1,215 @@
+{
+  "checksums_all_match": true,
+  "workbook_master_rows": 4269,
+  "workbook_master_row_aligned_with_csv": true,
+  "workbook_formula_columns": {
+    "Mid_Depth_m": {
+      "cells": 1057,
+      "first_row": 3214,
+      "last_row": 4270,
+      "cached_empty": 0
+    },
+    "Top_Elevation_m": {
+      "cells": 1057,
+      "first_row": 3214,
+      "last_row": 4270,
+      "cached_empty": 1057
+    },
+    "Bottom_Elevation_m": {
+      "cells": 1057,
+      "first_row": 3214,
+      "last_row": 4270,
+      "cached_empty": 1057
+    },
+    "Mid_Elevation_m": {
+      "cells": 1057,
+      "first_row": 3214,
+      "last_row": 4270,
+      "cached_empty": 1057
+    }
+  },
+  "columns_identical_to_csv": 33,
+  "columns_compared": 41,
+  "columns_differing": [
+    "Region",
+    "Ground_Elevation_m",
+    "Top_Elevation_m",
+    "Bottom_Elevation_m",
+    "Mid_Elevation_m",
+    "PL_pct",
+    "Pocket_Penetration_kPa",
+    "SPT_N"
+  ],
+  "text_qualifiers_blanked_in_csv": 85,
+  "digitised_sheets": 40,
+  "digitised_sheets_mapped": 40,
+  "digitised_sheets_matching_master_depths": 38,
+  "digitised_sheets_with_depth_conflicts": 2,
+  "digitised_depth_conflict_rows": 58,
+  "digitised_uscs_mismatch_rows": 0,
+  "qc_log_items": 42,
+  "polygons": {
+    "downtown_area_km2": 80.738,
+    "downtown_is_valid": true,
+    "ring_area_km2": 266.609,
+    "ring_interior_rings": 1,
+    "ring_hole_vs_downtown_symdiff_m2": 0.0,
+    "ring_vs_buffer5000_minus_downtown_symdiff_m2": 18244.9,
+    "ring_vs_buffer5000_symdiff_share_pct": 0.0068,
+    "boreholes_by_polygon_class": {
+      "downtown": 120,
+      "outside": 44,
+      "ring_5km": 25
+    },
+    "csv_region_agrees_with_polygons": 189,
+    "csv_region_disagrees_with_polygons": 0,
+    "boreholes_within_50m_of_downtown_boundary": 2,
+    "nearest_outside_borehole_to_downtown_m": 556.1,
+    "min_inside_distance_to_downtown_boundary_m": 30.7
+  },
+  "dem": {
+    "driver": "AIG",
+    "crs_epsg": 32648,
+    "pixel_m": 30.510944123105,
+    "width": 1082,
+    "height": 931,
+    "bounds": [
+      358623.69,
+      1461375.48,
+      391636.532,
+      1489781.169
+    ],
+    "dtype": "float32",
+    "valid_share": 0.8196,
+    "boreholes_inside_dem": 149,
+    "boreholes_outside_dem": 40,
+    "boreholes_outside_dem_by_polygon_class": {
+      "outside": 40
+    },
+    "csv_ground_vs_bilinear_max_abs_m": 1.1304643905418743e-06,
+    "csv_ground_reproduced_by_bilinear_within_1e-4": 149,
+    "csv_ground_reproduced_by_nearest_within_1e-4": 1,
+    "downtown_nearest_vs_bilinear_abs_m": {
+      "median": 0.148,
+      "p90": 0.587,
+      "max": 1.249
+    },
+    "downtown_boreholes_nearest_vs_bilinear_gt_0.5m": 19,
+    "workbook_ground_method_by_borehole": {
+      "bilinear": 80,
+      "outside_dem": 40,
+      "blank": 39,
+      "nearest_cell": 29,
+      "other": 1
+    },
+    "workbook_minus_csv_ground_max_abs_m": 0.513,
+    "downtown_dem_cells": 86742,
+    "downtown_dem_nodata_cells": 0,
+    "downtown_dem_elevation_m": {
+      "min": 3.87,
+      "p1": 9.56,
+      "p50": 14.12,
+      "p99": 22.81,
+      "max": 41.9
+    },
+    "downtown_borehole_ground_range_m": [
+      10.24,
+      23.39
+    ],
+    "dem_cells_exactly_1.5m": 13295
+  },
+  "prediction_domain": {
+    "grid_spacing_m": 25.0,
+    "grid_columns_inside_downtown": 129179,
+    "boreholes_used": 120,
+    "note": "All Downtown boreholes; recompute with development boreholes after the external holdout is fixed.",
+    "column_to_nearest_borehole_m": {
+      "p5": 133.8,
+      "p10": 202.9,
+      "p25": 371.1,
+      "p50": 676.9,
+      "p75": 1309.3,
+      "p90": 2213.0,
+      "p95": 2718.2,
+      "max": 3729.9
+    },
+    "share_of_columns_within_m": {
+      "50": 0.009,
+      "100": 0.0308,
+      "200": 0.098,
+      "300": 0.1838,
+      "500": 0.3698,
+      "1000": 0.6522
+    },
+    "borehole_nn_distance_m": {
+      "p10": 13.7,
+      "p50": 51.0,
+      "p90": 441.9
+    },
+    "borehole_convex_hull_share_of_downtown": 0.499
+  },
+  "label_support": {
+    "records_longer_than_1m_by_polygon_class": {
+      "ring_5km": 77,
+      "downtown": 54,
+      "outside": 12
+    },
+    "boreholes_with_records_longer_than_1m_by_polygon_class": {
+      "ring_5km": 5,
+      "downtown": 4,
+      "outside": 2
+    },
+    "ss_records_with_binary_label": 1987,
+    "ss_records_with_binary_label_and_no_lab_data": 1969,
+    "downtown_0_15m_label_density_by_workbook_block_and_sample_type": [
+      {
+        "block": "appended_rows_3214_4270",
+        "Sample_Type": "SPT",
+        "records": 36,
+        "binary_labelled": 36
+      },
+      {
+        "block": "appended_rows_3214_4270",
+        "Sample_Type": "SS",
+        "records": 320,
+        "binary_labelled": 235
+      },
+      {
+        "block": "appended_rows_3214_4270",
+        "Sample_Type": "ST",
+        "records": 342,
+        "binary_labelled": 338
+      },
+      {
+        "block": "rows_2_3213",
+        "Sample_Type": "D/U",
+        "records": 42,
+        "binary_labelled": 42
+      },
+      {
+        "block": "rows_2_3213",
+        "Sample_Type": "SPT",
+        "records": 18,
+        "binary_labelled": 18
+      },
+      {
+        "block": "rows_2_3213",
+        "Sample_Type": "SS",
+        "records": 750,
+        "binary_labelled": 747
+      },
+      {
+        "block": "rows_2_3213",
+        "Sample_Type": "ST",
+        "records": 540,
+        "binary_labelled": 540
+      },
+      {
+        "block": "rows_2_3213",
+        "Sample_Type": "U",
+        "records": 20,
+        "binary_labelled": 20
+      }
+    ]
+  }
+}

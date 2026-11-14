@@ -1,0 +1,176 @@
+# V4 regression settings: 1.5 m layer-average soil parameters from Easting, Northing, mid elevation and the
+# classifier's predicted P(Clay), 0-15 m, Downtown, under V3's spatial CV (106 m blocks); 3D map on the classifier grid.
+
+[run]
+# quick = true runs a tiny version (1 outer fold, 2 Optuna trials, small models) to check the code.
+# Quick results are NEVER thesis results.
+quick = false
+seed = 20261103
+n_jobs = 4
+
+[v3]
+# V5 READS (never writes): data/folds/ (blockCV folds, block size), data/processed/external_holdout.csv
+# and config/external_holdout.lock.json
+folder = "E:/DavidAn/SiemReapML_V3_fresh_start/SiemReapML"
+
+[files]
+boreholes_csv = "data/raw/SiemReap_BH_Master_Downtown_DEM_Region_v1_ArcGIS.csv"
+boreholes_sha256 = "caf59d0b4bd244303fc48679d28fc62fd572c9175a856744b07554e48f380f72"
+region_downtown = "Downtown"
+
+[samples]
+# One row = one sample record with a measured value. Its depth is the middle of the record.
+top_m = 0.0
+bottom_m = 15.0                   # middle depth must lie in [top_m, bottom_m]
+max_sample_length_m = 3.0         # longer records are not point values
+outlier_sd = 3.0                  # drop values beyond mean +- 3 SD of each target (as Khamjan et al. 2026); 0 = off
+
+# ------------------------------------------------------------------ targets ----
+# column  = column in the borehole CSV
+# log     = true: models learn log(1 + value); every score is on the original scale
+# min/max = values outside are treated as errors and dropped (reported in notebook 01)
+[targets.SPT_N]
+column = "SPT_N"
+unit = "blows/30 cm"
+log = true
+min = 0
+max = 60                          # as Khamjan et al. (2026): N > 60 treated as refusal
+
+[targets.Water_Content]
+column = "Water_Content_pct"
+unit = "%"
+log = false
+min = 0
+max = 150
+
+[targets.LL]
+column = "LL_pct"
+unit = "%"
+log = false
+min = 0
+max = 150
+
+[targets.PL]
+column = "PL_pct"
+unit = "%"
+log = false
+min = 0
+max = 100
+
+[targets.Wet_Unit_Weight]
+column = "Wet_Unit_Weight_kN_m3"
+unit = "kN/m3"
+log = false
+min = 12
+max = 25
+
+[targets.Su]
+column = "Su_kPa"
+unit = "kPa"
+log = true
+min = 0
+max = 500
+uscs = ["CL", "CH"]               # clay samples only: the compressible layer
+
+[cv]
+k = 5
+# Directly measured parameters only. Derived ones are calculated from the predictions in notebook 05:
+# PI = LL - PL. (Void ratio, dry unit weight etc. need Gs and are left to the settlement stage.)
+targets = ["Water_Content", "LL", "PL", "Wet_Unit_Weight", "Su", "SPT_N"]
+models = ["RF", "XGB", "MLP", "GWRF", "GWXGB"]   # plus the depth-only reference "Depth" (no tuning)
+block_multiples = [1]             # V3's 106 m blocks only
+depth_bin_m = 1.0                 # depth-only reference: training mean per 1 m slice
+depth_min_samples = 5             # slices with fewer training samples use the overall mean
+
+[layers]
+# A. LAYER models: target = mean of a borehole's samples in each layer (0-1.5 m, 1.5-3 m, ...)
+layer_m = 1.5
+
+[classifier]
+# The Clay/Sand classifier of V3-clean gives the soil input P(Clay).
+# The V3clean folder (with settings.toml, helpers.py, outputs/). If the classifier models are not found
+# there, V4 searches the folders next to V4_regression (3 levels deep) by itself.
+v3clean_folder = ".."
+fold_models = "outputs/03_spatial_cv/private/models/A_106m_p0_XGB_fold{k}.joblib"   # out-of-fold models (training, CV)
+final_json = "outputs/05_final_model/final_model.json"                             # final model (holdout test)
+cell_m = 0.5
+
+[map]
+# The classifier's 3D grid (X, Y, depth_top_m, ground_m, p_clay, dist_nearest_bh_m, reliability_zone)
+grid_csv = "data/raw/siemreap_3d_points_120bh_50m.csv"   # relative = inside V4_regression, or a full path like "E:/folder/file.csv"
+
+[soil_class]
+# Logged USCS groups: only reported (logged Clay share of each layer) and used for the Su scope; not an input.
+clay = ["CL", "CH"]               # 1
+sand = ["SC", "SM", "SP"]         # 0
+
+[cv.n_trials]
+RF = 30
+XGB = 30
+MLP = 30
+GWRF = 20
+GWXGB = 20
+
+[gw]
+# Geographically weighted models (as V3): local model per training borehole from its k nearest boreholes
+min_boreholes = 5
+min_samples = 20                  # a neighbourhood needs at least this many samples, else the global model
+max_neighbours = 80
+local_rf_trees = 100
+local_xgb_rounds_max = 300
+
+[inner_cv]
+# Inner folds = the other 4 outer folds; if one is too small, V3's backup inner folds are used.
+min_boreholes = 8
+min_samples = 30
+
+[quick]
+outer_folds = [1]
+n_trials = 2
+trees = 50
+
+# ------------------------------------------------------------ Optuna search spaces ----
+[space.RF]
+n_estimators = { type = "int", low = 200, high = 600, step = 100 }
+max_depth = { type = "int", low = 3, high = 30 }
+min_samples_leaf = { type = "int", low = 1, high = 50, log = true }
+max_features = { type = "int", low = 1, high = 4 }
+max_samples = { type = "float", low = 0.5, high = 1.0 }
+
+[space.XGB]
+n_estimators = { type = "int", low = 100, high = 800, step = 50 }
+learning_rate = { type = "float", low = 0.01, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 10 }
+min_child_weight = { type = "float", low = 1.0, high = 30.0, log = true }
+subsample = { type = "float", low = 0.5, high = 1.0 }
+colsample_bynode = { type = "float", low = 0.5, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
+gamma = { type = "float", low = 0.0, high = 5.0 }
+
+[space.MLP]
+n_layers = { type = "int", low = 1, high = 3 }
+n_units = { type = "int", low = 8, high = 128, log = true }
+activation = { type = "categorical", choices = ["relu", "tanh"] }
+alpha = { type = "float", low = 1e-6, high = 0.1, log = true }
+learning_rate_init = { type = "float", low = 1e-4, high = 1e-2, log = true }
+batch_size = { type = "categorical", choices = [32, 64, 128] }
+max_iter = { type = "int", low = 200, high = 1000, step = 100 }
+
+[space.GWRF]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+max_depth = { type = "int", low = 3, high = 20 }
+min_samples_leaf = { type = "int", low = 1, high = 30, log = true }
+max_features = { type = "int", low = 1, high = 4 }
+
+[space.GWXGB]
+k_neighbours = { type = "int", low = 8, high = 60 }
+alpha = { type = "float", low = 0.0, high = 1.0 }
+kernel = { type = "categorical", choices = ["bisquare", "uniform"] }
+n_estimators = { type = "int", low = 50, high = 300, step = 50 }
+learning_rate = { type = "float", low = 0.03, high = 0.3, log = true }
+max_depth = { type = "int", low = 2, high = 6 }
+min_child_weight = { type = "float", low = 1.0, high = 20.0, log = true }
+subsample = { type = "float", low = 0.6, high = 1.0 }
+reg_lambda = { type = "float", low = 0.001, high = 10.0, log = true }
