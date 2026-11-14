@@ -7,6 +7,7 @@ Test A: V3's 106 m blockCV folds (nested). Test B: one random 80:20 borehole spl
 The same Downtown boreholes and V3's 11 external-holdout boreholes.
 
 Sections
+  0. Exploratory data analysis (notebook 01: the raw file before any rule)
   1. Settings and files
   2. Boreholes -> samples of one target
   3. Models (RF, XGB, MLP, GWRF, GWXGB, depth-only and soil+depth references)
@@ -58,6 +59,90 @@ def soil_names(S: dict, target: str) -> dict:
 
 def design(df: pd.DataFrame, name: str = "") -> np.ndarray:
     return df[FEATURES].values
+
+
+# ================================================ 0. Exploratory data analysis ====
+
+# Columns of the borehole file shown in notebook 01: column -> (short label, unit, meaning)
+LAB_COLUMNS = {
+    "SPT_N": ("SPT-N", "blows/30 cm", "standard penetration test blow count (split-spoon samples)"),
+    "Water_Content_pct": ("w", "%", "natural water content"),
+    "LL_pct": ("LL", "%", "liquid limit"),
+    "PL_pct": ("PL", "%", "plastic limit"),
+    "PI_pct": ("PI", "%", "plasticity index = LL - PL"),
+    "Silt_Clay_pct": ("Fines", "%", "silt + clay (passing 0.075 mm)"),
+    "Sand_pct": ("Sand", "%", "sand fraction"),
+    "Gravel_pct": ("Gravel", "%", "gravel fraction"),
+    "Wet_Unit_Weight_kN_m3": ("gamma_wet", "kN/m3", "wet (bulk) unit weight"),
+    "Dry_Unit_Weight_kN_m3": ("gamma_dry", "kN/m3", "dry unit weight (calculated)"),
+    "Saturated_Unit_Weight_kN_m3": ("gamma_sat", "kN/m3", "saturated unit weight (calculated)"),
+    "Submerged_Unit_Weight_kN_m3": ("gamma_sub", "kN/m3", "submerged unit weight (calculated)"),
+    "Specific_Gravity": ("Gs", "-", "specific gravity of solids"),
+    "Void_Ratio": ("e0", "-", "void ratio"),
+    "Porosity_pct": ("n", "-", "porosity (stored as a fraction despite the name)"),
+    "Saturation_pct": ("Sr", "%", "degree of saturation (calculated)"),
+    "Su_kPa": ("Su", "kPa", "undrained shear strength"),
+    "Pocket_Penetration_kPa": ("PP", "kPa", "pocket penetrometer"),
+    "Eu_MPa": ("Eu", "MPa", "undrained Young's modulus (clay)"),
+    "E_eff_MPa": ("E'", "MPa", "drained Young's modulus (sand)"),
+    "c_eff_kPa": ("c'", "kPa", "effective cohesion"),
+    "Phi_eff_deg": ("phi'", "deg", "effective friction angle"),
+}
+
+
+def load_raw(S: dict) -> pd.DataFrame:
+    """The borehole file exactly as it is (all regions, all depths), plus the middle depth."""
+    df = pd.read_csv(check_file(S, "boreholes_csv"), encoding="utf-8-sig", low_memory=False)
+    df["mid_depth_m"] = (df.Depth_From_m + df.Depth_To_m) / 2
+    df["record_length_m"] = df.Depth_To_m - df.Depth_From_m
+    return df
+
+
+def soil_group(uscs: pd.Series) -> pd.Series:
+    """Clay (CL, CH), Sand (SC, SM, SP), other or missing: for the EDA plots."""
+    u = uscs.astype(str).str.strip().str.upper()
+    return pd.Series(np.select([u.isin(["CL", "CH"]), u.isin(["SC", "SM", "SP", "SP-SM"]), uscs.isna()],
+                               ["Clay", "Sand", "missing"], "other"), index=uscs.index)
+
+
+def missing_report(df: pd.DataFrame) -> pd.DataFrame:
+    """Count and % of missing values per column, largest first."""
+    m = df.isnull().sum()
+    return (pd.DataFrame({"Missing Count": m, "Missing %": (100 * m / len(df)).round(1)})
+            .sort_values("Missing %", ascending=False))
+
+
+def availability(df: pd.DataFrame, columns, edges) -> pd.DataFrame:
+    """Number of values of each column in each depth band (rows = columns, columns = bands)."""
+    labels = [f"{a:g}-{b:g}" for a, b in zip(edges[:-1], edges[1:])]
+    band = pd.cut(df.mid_depth_m, list(edges), right=False, labels=labels)
+    return pd.DataFrame({LAB_COLUMNS.get(c, (c,))[0]: df[c].notna().groupby(band, observed=False).sum()
+                         for c in columns if c in df}).T
+
+
+def data_status(df: pd.DataFrame, columns, S: dict) -> pd.DataFrame:
+    """Per column: values, boreholes with a value, values in Clay and Sand samples, and the status
+    for spatial regression from the number of boreholes ([eda] thresholds)."""
+    e = S["eda"]
+    rows = []
+    for c in columns:
+        if c not in df:
+            continue
+        v = df[df[c].notna()]
+        n_bh = v.BH_Code.nunique()
+        status = ("usable" if n_bh >= e["usable_min_boreholes"] else
+                  "borderline" if n_bh >= e["borderline_min_boreholes"] else "too few")
+        g = soil_group(v.USCS)
+        rows.append({"column": c, "parameter": LAB_COLUMNS.get(c, (c,))[0], "unit": LAB_COLUMNS.get(c, ("", "-"))[1],
+                     "values": len(v), "boreholes": n_bh, "clay_values": int((g == "Clay").sum()),
+                     "sand_values": int((g == "Sand").sum()), "median": v[c].median(), "min": v[c].min(),
+                     "max": v[c].max(), "status": status})
+    return pd.DataFrame(rows)
+
+
+def a_line(ll):
+    """Casagrande A-line, PI = 0.73 (LL - 20)."""
+    return 0.73 * (np.asarray(ll, float) - 20)
 
 
 # =============================================================== 1. Settings and files ====
@@ -139,6 +224,8 @@ def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFr
     - top depth ("top") or - middle depth ("mid"). Soil = the logged symbol coded by `soil_groups`;
     other symbols, and (uscs6) groups with fewer than `min_group_samples` samples, are left out."""
     t, s = S["targets"][target], S["samples"]
+    if t["column"] not in records:
+        raise KeyError(f"column {t['column']} of target {target} is not in the borehole file")
     v = pd.to_numeric(records[t["column"]], errors="coerce")
     r = records.assign(value=v)[v.notna()].copy()
     info = {"records_with_value": len(r)}
@@ -153,7 +240,7 @@ def make_samples(records: pd.DataFrame, target: str, S: dict) -> tuple[pd.DataFr
         info["dropped_other_uscs"] = int(other.sum())
         bad = bad | other
     keep = ~long_ & ~outside & ~bad
-    k_sd = s.get("outlier_sd")
+    k_sd = t.get("outlier_sd", s.get("outlier_sd"))   # a target can override (SPT_N: cap only)
     if k_sd:                                             # Khamjan et al. (2026): drop values beyond mean +- 3 SD
         v = r.value[keep]
         far = keep & ((r.value - v.mean()).abs() > k_sd * v.std())

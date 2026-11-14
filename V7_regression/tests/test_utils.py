@@ -83,10 +83,15 @@ def test_random_split_is_fixed_and_twenty_percent(monkeypatch):
     assert sorted(g1.unique()) == [1, 2, 3, 4, 5] and g1.equals(g2)
 
 
-def test_three_sd_outlier_dropped():
-    r = records([("B", d, d + 0.45, 10) for d in np.arange(0, 14, 0.5)] + [("B", 14.0, 14.45, 59)])
-    s, info = H.make_samples(r, "SPT_N", S)
+def test_three_sd_outlier_dropped_but_not_for_spt():
+    rows = [("B", d, d + 0.45, 10) for d in np.arange(0, 14, 0.5)] + [("B", 14.0, 14.45, 59)]
+    r = records(rows).rename(columns={"SPT_N": "Water_Content_pct"})
+    s, info = H.make_samples(r, "Water_Content", S)          # other parameters: mean +- 3 SD
     assert info["dropped_beyond_sd"] == 1 and s.y.max() == 10
+    s, info = H.make_samples(records(rows), "SPT_N", S)       # SPT-N: only the cap at 60
+    assert "dropped_beyond_sd" not in info and s.y.max() == 59
+    s, info = H.make_samples(records(rows + [("B", 14.5, 14.95, 61)]), "SPT_N", S)
+    assert info["dropped_out_of_range"] == 1
 
 
 def test_depth_reference_uses_slice_means_and_overall_mean():
